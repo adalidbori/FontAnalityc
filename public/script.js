@@ -1,4 +1,4 @@
-window.miVariable = "localhost";
+window.miVariable = "192.168.1.196";
 document.addEventListener("DOMContentLoaded", () => {
 
   // Mock data for departments (replace with actual data source)
@@ -73,6 +73,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
       menuContainer.appendChild(button);
     });
+
+    // Crear y agregar el dropdown multiselección al final del menú
+    const dropdownContainer = document.createElement("div");
+    dropdownContainer.className = "nav-item";
+
+    const dropdownButton = document.createElement("button");
+    dropdownButton.className = "nav-link text-start border-0 rounded-0 py-3";
+    dropdownButton.setAttribute("data-bs-toggle", "dropdown");
+    dropdownButton.setAttribute("aria-expanded", "false");
+    dropdownButton.innerHTML = "Select Users";  // Nombre inicial del dropdown
+
+    const dropdownMenu = document.createElement("div");
+    dropdownMenu.className = "dropdown-menu p-3";
+    dropdownMenu.style.maxHeight = "600px";  // Ajustar la altura máxima
+    dropdownMenu.style.overflowY = "auto";  // Hacer que el contenido sea desplazable
+
+    // Primero, realiza una solicitud para obtener el archivo JSON
+    obtenerRegistrosindividuales()
+      .then(users => {
+        populateDropdown(users);
+      })
+      .catch(error => {
+        console.error('Error al obtener registros individuales:', error);
+      });
+
+
   }
 
   // Función para renderizar la tabla de empleados (se actualiza el contenido sin tocar el input de fecha)
@@ -84,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let html = `
           <h2>${department.name} Inbox</h2>
           <div class="table-responsive">
-            <table id="miTabla" class="table table-striped table-hover">
+            <table id="miTabla" class="table table-striped table-hover" style="max-height: 500px; overflow-y: scroll;">
               <thead class="table-light">
                 <tr>
                   <th>Name</th>
@@ -112,26 +138,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (apiResponses) {
       apiResponses.forEach((result) => {
-        const totalSeconds = Math.round(result.apiData.metrics[2].value); // Redondear
-        const hours = Math.floor(totalSeconds / 3600); // Obtener horas
-        const minutes = Math.floor((totalSeconds % 3600) / 60); // Obtener minutos restantes
-
+        const totalSeconds = Math.round(result.apiData.metrics[2].value);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
         const formattedTime = `${hours}h ${minutes}m`;
 
+        // Clase basada en la condición
+        const timeClass = totalSeconds > 7200 ? 'text-danger' : 'text-success';
+
         html += `
-                <tr>
-                  <td class="fw-medium">${result.record.name}</td>
-                  <td>${result.record.email || ''}</td>
-                  <td class="text-center">${result.apiData.metrics[0].value}</td>
-                  <td class="text-center">${result.apiData.metrics[1].value}</td>
-                  <td class="text-center">${formattedTime}</td>
-                </tr>
+          <tr>
+            <td class="fw-medium">${result.record.name}</td>
+            <td>${result.record.email || ''}</td>
+            <td class="text-center">${result.apiData.metrics[0].value}</td>
+            <td class="text-center">${result.apiData.metrics[1].value}</td>
+            <td class="text-center ${timeClass}">${formattedTime}</td>
+          </tr>
         `;
       });
 
       $(document).ready(function () {
         $('#miTabla').DataTable({
-          pageLength: 25 // Cambia este valor a la cantidad que quieras
+          pageLength: 25
         });
       });
     }
@@ -158,14 +186,16 @@ document.addEventListener("DOMContentLoaded", () => {
       endDate: currentEndDate,
       ranges: {
         'This Week': [moment().startOf('week'), moment().subtract(1, 'days')],
-        'This Month': [moment().startOf('month'), moment().subtract(1, 'days')],
-        'Last 30 Days': [moment().subtract(30, 'days'), moment().subtract(1, 'days')]
+        'Last Month': [
+          moment().subtract(1, 'month').startOf('month'),
+          moment().subtract(1, 'month').endOf('month')
+        ]
       }
     }, function (start, end, label) {
-      
+
       // Actualiza las variables globales cuando el usuario modifica el rango
       const contentContainer = document.getElementById("employee-content");
-      
+
       let html = '<lottie-player src="./animation1.json" background="transparent"  speed="1"  style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px;" loop autoplay></lottie-player>';
       contentContainer.insertAdjacentHTML('beforeend', html);
       currentStartDate = start;
@@ -254,4 +284,66 @@ document.addEventListener("DOMContentLoaded", () => {
       return [];
     }
   }
+
+  async function obtenerRegistrosindividuales() {
+    try {
+      const respuesta = await fetch('./individual_inbox.json');
+      if (!respuesta.ok) {
+        throw new Error(`Error al cargar el JSON: ${respuesta.status} ${respuesta.statusText}`);
+      }
+      const datos = await respuesta.json();
+      return datos;
+    } catch (error) {
+      console.error('Error al obtener registros:', error);
+      return [];
+    }
+  }
+
+  // Función para agregar los usuarios al dropdown
+  function populateDropdown(users) {
+    const menuContainer = document.getElementById("department-menu");
+  
+    // Crear wrapper para no duplicar si ya existe
+    let userDropdownWrapper = document.getElementById("user-dropdown-wrapper");
+    if (userDropdownWrapper) userDropdownWrapper.remove(); // Eliminamos la instancia anterior si ya existía
+  
+    userDropdownWrapper = document.createElement("div");
+    userDropdownWrapper.id = "user-dropdown-wrapper";
+    userDropdownWrapper.className = "mt-3"; // Espacio entre secciones
+  
+    // Crear el <select> múltiple
+    const selectElement = document.createElement("select");
+    selectElement.setAttribute("multiple", "multiple");
+    selectElement.className = "form-select";
+    selectElement.style.minHeight = "250px"; // Altura personalizada
+  
+    users.forEach((user) => {
+      const option = document.createElement("option");
+      option.value = user.id;
+      option.innerText = user.name;
+      selectElement.appendChild(option);
+    });
+  
+    // Crear botón Apply
+    const applyButton = document.createElement("button");
+    applyButton.className = "btn btn-primary mt-2";
+    applyButton.innerText = "Apply";
+  
+    applyButton.addEventListener("click", () => {
+      const selectedOptions = Array.from(selectElement.selectedOptions).map(opt => opt.value);
+      console.log("Usuarios seleccionados:", selectedOptions);
+  
+      // Aquí puedes lanzar la acción con los seleccionados
+    });
+  
+    // Agregar elementos al wrapper y luego al contenedor principal
+    userDropdownWrapper.appendChild(selectElement);
+    userDropdownWrapper.appendChild(applyButton);
+    menuContainer.appendChild(userDropdownWrapper);
+  }
+  
+
+
 });
+
+

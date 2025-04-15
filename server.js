@@ -138,6 +138,6 @@ async function callFrontApi(requestBody, recordIndex) {
     return { error: `Max retries reached, status not 'done'` };
   }
 
-app.listen(port, () => {
-    console.log(`Servidor corriendo en http://localhost:${port}`);
-});
+  app.listen(3001, '0.0.0.0', () => {
+    console.log('Listening port 3001');
+  });

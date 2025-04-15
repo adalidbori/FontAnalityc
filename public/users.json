@@ -11,6 +11,7 @@
     { "id": "tea_7tbik", "email": "alexa@acb-us.com", "name": "Alexa Morales", "inbox": "Concierge", "code": "cha_aaong" },
     { "id": "tea_7tg7g", "email": "accounting@acb-us.com", "name": "Sandra Osorio", "inbox": "Billing", "code": "cha_ag1jg" },
     { "id": "tea_7twjw", "email": "ada@acb-us.com", "name": "Ada Peralta", "inbox": "Exports", "code": "cha_ex2oc" },
+    { "id": "tea_7u0y4", "email": "carlaimach@acb-us.com", "name": "Carla Imach", "inbox": "Exports", "code": "cha_ex2oc" },
     { "id": "tea_7u0y4", "email": "carlaimach@acb-us.com", "name": "Carla Imach", "inbox": "Freight", "code": "cha_b4wuk" },
     { "id": "tea_7um4s", "email": "beverly@acb-us.com", "name": "Beverly Perez", "inbox": "Freight", "code": "cha_b4wuk" },
     { "id": "tea_7um6k", "email": "adriana@acb-us.com", "name": "Adriana Ramirez", "inbox": "Concierge", "code": "cha_aaong" },
@@ -25,7 +26,14 @@
     { "id": "tea_8qlxo", "email": "lperez@acb-us.com", "name": "Leticia Perez", "inbox": "Arribal Notice", "code": "cha_ey9qk" },
     { "id": "tea_981g2", "email": "dfernandez@acb-us.com", "name": "Daniel Fernandez", "inbox": "Concierge", "code": "cha_aaong" },
     { "id": "tea_7ssuk", "email": "judith@acb-us.com", "name": "Judith Peralta", "inbox": "Distribution", "code": "cha_blqq4" },
-    { "id": "tea_8kido", "email": "bella@acb-us.com", "name": "Isabella Rodriguez", "inbox": "Concierge", "code": "cha_aaong" }
+    { "id": "tea_8kido", "email": "bella@acb-us.com", "name": "Isabella Rodriguez", "inbox": "Concierge", "code": "cha_aaong" },
+    { "id": "tea_8c8jw", "email": "alejandro@acb-us.com", "name": "Alejandro Villalobos", "inbox": "Concierge", "code": "cha_aaong" },
+    { "id": "tea_7u0y4", "email": "carlaimach@acb-us.com", "name": "Carla Imach", "inbox": "Concierge", "code": "cha_aaong" },
+    { "id": "tea_7um4s", "email": "beverly@acb-us.com", "name": "Beverly Perez", "inbox": "Concierge", "code": "cha_aaong" },
+    { "id": "tea_7uma4", "email": "guillermo@acb-us.com", "name": "Guillermo Guerrero", "inbox": "Concierge", "code": "cha_aaong" },
+    { "id": "tea_7xgp8", "email": "claudia@acb-us.com", "name": "Claudia Garcia", "inbox": "Arribal Notice", "code": "cha_ey9qk" },
+    { "id": "tea_7t8i4", "email": "mdiaz@acb-us.com", "name": "Maria Diaz", "inbox": "Billing", "code": "cha_ag1jg" }
+
 ]
 
 

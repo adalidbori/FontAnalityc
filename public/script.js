@@ -302,47 +302,51 @@ document.addEventListener("DOMContentLoaded", () => {
   // Función para agregar los usuarios al dropdown
   function populateDropdown(users) {
     const menuContainer = document.getElementById("department-menu");
-  
+
     // Crear wrapper para no duplicar si ya existe
     let userDropdownWrapper = document.getElementById("user-dropdown-wrapper");
     if (userDropdownWrapper) userDropdownWrapper.remove(); // Eliminamos la instancia anterior si ya existía
-  
+
     userDropdownWrapper = document.createElement("div");
     userDropdownWrapper.id = "user-dropdown-wrapper";
     userDropdownWrapper.className = "mt-3"; // Espacio entre secciones
-  
+
     // Crear el <select> múltiple
     const selectElement = document.createElement("select");
     selectElement.setAttribute("multiple", "multiple");
     selectElement.className = "form-select";
     selectElement.style.minHeight = "250px"; // Altura personalizada
-  
+
     users.forEach((user) => {
       const option = document.createElement("option");
       option.value = user.id;
       option.innerText = user.name;
       selectElement.appendChild(option);
     });
-  
+
     // Crear botón Apply
     const applyButton = document.createElement("button");
     applyButton.className = "btn btn-primary mt-2";
     applyButton.innerText = "Apply";
-  
+
     applyButton.addEventListener("click", () => {
       const selectedOptions = Array.from(selectElement.selectedOptions).map(opt => opt.value);
-      console.log("Usuarios seleccionados:", selectedOptions);
-  
-      // Aquí puedes lanzar la acción con los seleccionados
+      if (selectedOptions.length > 10) {
+        // Deselecciona la última opción seleccionada
+        selectedOptions[selectedOptions.length - 1].selected = false;
+
+        // Alerta al usuario (puedes usar modal o toast si prefieres)
+        alert("You can only select up to 10 users.");
+      }else{
+        console.log("Usuarios seleccionados:", selectedOptions);
+      }
     });
-  
+
     // Agregar elementos al wrapper y luego al contenedor principal
     userDropdownWrapper.appendChild(selectElement);
     userDropdownWrapper.appendChild(applyButton);
     menuContainer.appendChild(userDropdownWrapper);
   }
-  
-
 
 });
 

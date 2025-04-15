@@ -1,5 +1,6 @@
 window.miVariable = "localhost";
 document.addEventListener("DOMContentLoaded", () => {
+
   // Mock data for departments (replace with actual data source)
   const departments = [
     { id: 1, name: "Secto", icon: "fas fa-chart-line" },
@@ -14,14 +15,14 @@ document.addEventListener("DOMContentLoaded", () => {
   ];
   // Mock data for employees (replace with actual data source)
   const employees = [
-    
+
   ];
 
   // Variables globales para el departamento seleccionado y el rango de fechas
   let selectedDepartmentId = departments[0].id;
-  let selectedDepartmentName = departments[0].name; 
-  let currentStartDate = moment().startOf('month');
-  let currentEndDate = moment().subtract(1, 'days');
+  let selectedDepartmentName = departments[0].name;
+  let currentStartDate = moment();
+  let currentEndDate = moment();
 
   // Renderiza el menú de departamentos y la tabla de empleados
   renderDepartmentMenu();
@@ -44,7 +45,6 @@ document.addEventListener("DOMContentLoaded", () => {
         // Actualiza el departamento seleccionado
         selectedDepartmentId = department.id;
         selectedDepartmentName = department.name;
-
         // Actualiza la clase active
         document.querySelectorAll("#department-menu .nav-link").forEach((el) => {
           el.classList.remove("active");
@@ -54,7 +54,21 @@ document.addEventListener("DOMContentLoaded", () => {
         // Actualiza la tabla de empleados para el nuevo departamento
         renderEmployeeTable(selectedDepartmentId, selectedDepartmentName);
         // Opcional: actualiza los datos con el rango actual
-        actualizarDatos();
+        //actualizarDatos();
+
+        const defaultStartDate = moment();
+        const defaultEndDate = moment();
+
+        currentStartDate = defaultStartDate;
+        currentEndDate = defaultEndDate;
+        // Obtiene la instancia del daterangepicker y actualiza sus fechas
+        const picker = $('#daterange').data('daterangepicker');
+        if (picker) {
+          picker.setStartDate(defaultStartDate);
+          picker.setEndDate(defaultEndDate);
+          // Si autoUpdateInput está activado, actualiza el valor del input
+          $('#daterange').val(defaultStartDate.format('YYYY-MM-DD') + ' - ' + defaultEndDate.format('YYYY-MM-DD'));
+        }
       });
 
       menuContainer.appendChild(button);
@@ -70,7 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let html = `
           <h2>${department.name} Inbox</h2>
           <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table id="miTabla" class="table table-striped table-hover">
               <thead class="table-light">
                 <tr>
                   <th>Name</th>
@@ -98,15 +112,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (apiResponses) {
       apiResponses.forEach((result) => {
+        const totalSeconds = Math.round(result.apiData.metrics[2].value); // Redondear
+        const hours = Math.floor(totalSeconds / 3600); // Obtener horas
+        const minutes = Math.floor((totalSeconds % 3600) / 60); // Obtener minutos restantes
+
+        const formattedTime = `${hours}h ${minutes}m`;
+
         html += `
                 <tr>
                   <td class="fw-medium">${result.record.name}</td>
                   <td>${result.record.email || ''}</td>
                   <td class="text-center">${result.apiData.metrics[0].value}</td>
                   <td class="text-center">${result.apiData.metrics[1].value}</td>
-                  <td class="text-center">${result.apiData.metrics[2].value}</td>
+                  <td class="text-center">${formattedTime}</td>
                 </tr>
         `;
+      });
+
+      $(document).ready(function () {
+        $('#miTabla').DataTable({
+          pageLength: 25 // Cambia este valor a la cantidad que quieras
+        });
       });
     }
 
@@ -115,12 +141,13 @@ document.addEventListener("DOMContentLoaded", () => {
             </table>
           </div>
     `;
-
     contentContainer.innerHTML = html;
   }
 
   // Función que inicializa el daterangepicker
   function initializeDatePicker() {
+
+    console.log('Datepicker inizialized');
     $('#daterange').daterangepicker({
       opens: 'left',
       locale: {
@@ -135,13 +162,18 @@ document.addEventListener("DOMContentLoaded", () => {
         'Last 30 Days': [moment().subtract(30, 'days'), moment().subtract(1, 'days')]
       }
     }, function (start, end, label) {
+      
       // Actualiza las variables globales cuando el usuario modifica el rango
+      const contentContainer = document.getElementById("employee-content");
+      
+      let html = '<lottie-player src="./animation1.json" background="transparent"  speed="1"  style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px;" loop autoplay></lottie-player>';
+      contentContainer.insertAdjacentHTML('beforeend', html);
       currentStartDate = start;
       currentEndDate = end;
-      
+
       console.log('Rango seleccionado:', start.format('YYYY-MM-DD'), 'a', end.format('YYYY-MM-DD'));
       console.log('Start Timestamp (seconds):', start.unix());
-      
+
       const endUTC5 = moment.tz(end.format('YYYY-MM-DD'), 'America/New_York');
       console.log('End Timestamp UTC-5 (seconds):', endUTC5.unix());
 
@@ -152,13 +184,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Función para actualizar los datos usando el rango actual y renderizar la tabla
   async function actualizarDatos() {
+    console.log('Actualizando datos');
     const startTimestampSeconds = currentStartDate.unix();
     const endUTC5 = moment.tz(currentEndDate.format('YYYY-MM-DD'), 'America/New_York');
     const endTimestampSeconds = endUTC5.unix();
-    
-    console.log('Actualizando datos con rango:', currentStartDate.format('YYYY-MM-DD'), 'a', currentEndDate.format('YYYY-MM-DD'));
-    console.log('Start Timestamp (seconds):', startTimestampSeconds);
-    console.log('End Timestamp UTC-5 (seconds):', endTimestampSeconds);
 
     try {
       const registros = await obtenerRegistrosPorInbox(selectedDepartmentName);

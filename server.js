@@ -9,11 +9,6 @@ const port = 3001;
 const ENDPOINT = process.env.ENDPOINT;
 const FRONT_API_KEY = process.env.FRONT_API_KEY;
 
-// Debug .env
-console.log('.env exists:', fs.existsSync(path.join(__dirname, '.env')));
-console.log('ENDPOINT:', ENDPOINT);
-console.log('FRONT_API_KEY:', FRONT_API_KEY);
-
 // Middleware to parse JSON bodies
 app.use(express.json());
 

@@ -1,17 +1,17 @@
-window.miVariable = "192.168.1.196";
+window.miVariable = "localhost";
 document.addEventListener("DOMContentLoaded", () => {
 
   // Mock data for departments (replace with actual data source)
   const departments = [
-    { id: 1, name: "Secto", icon: "fas fa-chart-line" },
+    { id: 8, name: "Arribal Notice", icon: "fas fa-bullhorn" },
     { id: 2, name: "Billing", icon: "fa-solid fa-calculator" },
     { id: 3, name: "Concierge", icon: "fas fa-users" },
+    { id: 9, name: "Distribution", icon: "fa-solid fa-road" },
     { id: 4, name: "Exports", icon: "fas fa-code" },
     { id: 5, name: "Freight", icon: "fa-solid fa-truck" },
-    { id: 6, name: "Pricing", icon: "fa-solid fa-money-bill" },
     { id: 7, name: "ISF", icon: "fa-solid fa-file" },
-    { id: 8, name: "Arribal Notice", icon: "fas fa-bullhorn" },
-    { id: 9, name: "Distribution", icon: "fa-solid fa-road" }
+    { id: 6, name: "Pricing", icon: "fa-solid fa-money-bill" },
+    { id: 1, name: "Secto", icon: "fas fa-chart-line" }
   ];
   // Mock data for employees (replace with actual data source)
   const employees = [
@@ -23,6 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedDepartmentName = departments[0].name;
   let currentStartDate = moment();
   let currentEndDate = moment();
+  let selectedOptions = [];
 
   // Renderiza el menú de departamentos y la tabla de empleados
   renderDepartmentMenu();
@@ -31,6 +32,37 @@ document.addEventListener("DOMContentLoaded", () => {
   // Inicializa el daterangepicker solo una vez en el contenedor fijo
   initializeDatePicker();
 
+  
+
+  function initializeSearchButton(){
+    const searchButton = document.querySelector('.searchButton');
+    const selectElement = document.querySelector('.form-select');
+    searchButton.addEventListener("click", () => {
+      selectedOptions = Array.from(selectElement.selectedOptions).map(opt => ({
+        id: opt.value,
+        name: opt.innerText,
+        email: opt.dataset.email,
+      }));
+      console.log("Departament ID:"+selectedDepartmentId);
+      console.log("Usuarios seleccionados"+selectedOptions.length);
+      const contentContainer = document.getElementById("employee-content");
+      if (selectedOptions.length === 0) {
+        renderEmployeeTable(selectedDepartmentId, selectedDepartmentName);
+        let html = '<lottie-player src="./animation1.json" background="transparent"  speed="1"  style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px;" loop autoplay></lottie-player>';
+        contentContainer.insertAdjacentHTML('beforeend', html);
+        actualizarDatos();
+      }else{
+        renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, null, true);
+        let html = '<lottie-player src="./animation1.json" background="transparent"  speed="1"  style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px;" loop autoplay></lottie-player>';
+        contentContainer.insertAdjacentHTML('beforeend', html);
+        actualizarDatosIndividuales(selectedOptions);
+        Array.from(selectElement.options).forEach(option => {
+          option.selected = false;
+        });
+      }
+    });
+
+  }
   // Función para renderizar el menú de departamentos
   function renderDepartmentMenu() {
     const menuContainer = document.getElementById("department-menu");
@@ -53,22 +85,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Actualiza la tabla de empleados para el nuevo departamento
         renderEmployeeTable(selectedDepartmentId, selectedDepartmentName);
-        // Opcional: actualiza los datos con el rango actual
-        //actualizarDatos();
-
-        const defaultStartDate = moment();
-        const defaultEndDate = moment();
-
-        currentStartDate = defaultStartDate;
-        currentEndDate = defaultEndDate;
-        // Obtiene la instancia del daterangepicker y actualiza sus fechas
-        const picker = $('#daterange').data('daterangepicker');
-        if (picker) {
-          picker.setStartDate(defaultStartDate);
-          picker.setEndDate(defaultEndDate);
-          // Si autoUpdateInput está activado, actualiza el valor del input
-          $('#daterange').val(defaultStartDate.format('YYYY-MM-DD') + ' - ' + defaultEndDate.format('YYYY-MM-DD'));
-        }
       });
 
       menuContainer.appendChild(button);
@@ -102,13 +118,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Función para renderizar la tabla de empleados (se actualiza el contenido sin tocar el input de fecha)
-  function renderEmployeeTable(departmentId, selectedDepartmentName, apiResponses = null) {
+  function renderEmployeeTable(departmentId = null, selectedDepartmentName, apiResponses = null, isIndividual = null) {
+
     const contentContainer = document.getElementById("employee-content");
     const departmentEmployees = employees.filter((emp) => emp.departmentId === departmentId);
     const department = departments.find((dept) => dept.id === departmentId);
-
+    let departmentName = department.name;
+    if (isIndividual) {
+      departmentName = 'Individual'
+    }
     let html = `
-          <h2>${department.name} Inbox</h2>
+          <h2>${departmentName} Inbox</h2>
           <div class="table-responsive">
             <table id="miTabla" class="table table-striped table-hover" style="max-height: 500px; overflow-y: scroll;">
               <thead class="table-light">
@@ -192,29 +212,14 @@ document.addEventListener("DOMContentLoaded", () => {
         ]
       }
     }, function (start, end, label) {
-
-      // Actualiza las variables globales cuando el usuario modifica el rango
-      const contentContainer = document.getElementById("employee-content");
-
-      let html = '<lottie-player src="./animation1.json" background="transparent"  speed="1"  style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px;" loop autoplay></lottie-player>';
-      contentContainer.insertAdjacentHTML('beforeend', html);
-      currentStartDate = start;
-      currentEndDate = end;
-
-      console.log('Rango seleccionado:', start.format('YYYY-MM-DD'), 'a', end.format('YYYY-MM-DD'));
-      console.log('Start Timestamp (seconds):', start.unix());
-
-      const endUTC5 = moment.tz(end.format('YYYY-MM-DD'), 'America/New_York');
-      console.log('End Timestamp UTC-5 (seconds):', endUTC5.unix());
-
-      // Actualiza los datos con el nuevo rango
-      actualizarDatos();
+      
+        currentStartDate = start;
+        currentEndDate = end;
     });
   }
 
   // Función para actualizar los datos usando el rango actual y renderizar la tabla
   async function actualizarDatos() {
-    console.log('Actualizando datos');
     const startTimestampSeconds = currentStartDate.unix();
     const endUTC5 = moment.tz(currentEndDate.format('YYYY-MM-DD'), 'America/New_York');
     const endTimestampSeconds = endUTC5.unix();
@@ -236,6 +241,26 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  async function actualizarDatosIndividuales(inboxes) {
+    const startTimestampSeconds = currentStartDate.unix();
+    const endUTC5 = moment.tz(currentEndDate.format('YYYY-MM-DD'), 'America/New_York');
+    const endTimestampSeconds = endUTC5.unix();
+    try {
+      const data = await callApiIndividuals(startTimestampSeconds, endTimestampSeconds, inboxes);
+      console.log(data);
+      const apiResponses = data.apiResponses || [];
+      renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, apiResponses, true);
+    } catch (error) {
+      console.error('Error al procesar datos:', error);
+      renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, [{
+        recordIndex: 1,
+        record: { name: 'Error', email: '', position: '' },
+        error: error.message
+      }]);
+    }
+  }
+
+
   // Función async para la llamada a la API
   async function callApi(timestampStart, timestampEnd, registros) {
     try {
@@ -251,6 +276,38 @@ document.addEventListener("DOMContentLoaded", () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ timestampStart, timestampEnd, registros }),
+      });
+
+      console.log('Response status:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Error del servidor: ${errorData.error || response.statusText || 'Unknown error'}`);
+      }
+
+      const data = await response.json();
+      console.log('Parsed data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error al llamar al API:', error.message);
+      throw error;
+    }
+  }
+
+  async function callApiIndividuals(timestampStart, timestampEnd, inboxes) {
+    try {
+      if (!timestampStart || !timestampEnd || !Array.isArray(inboxes)) {
+        throw new Error('Faltan datos requeridos: timestampStart, timestampEnd o registros');
+      }
+
+      console.log('Sending to API:', { timestampStart, timestampEnd, inboxes });
+
+      const response = await fetch(`http://${window.miVariable || 'localhost'}:3001/getDataIndividuals`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ timestampStart, timestampEnd, inboxes }),
       });
 
       console.log('Response status:', response.status);
@@ -302,52 +359,37 @@ document.addEventListener("DOMContentLoaded", () => {
   // Función para agregar los usuarios al dropdown
   function populateDropdown(users) {
     const menuContainer = document.getElementById("department-menu");
-
+  
     // Crear wrapper para no duplicar si ya existe
     let userDropdownWrapper = document.getElementById("user-dropdown-wrapper");
     if (userDropdownWrapper) userDropdownWrapper.remove(); // Eliminamos la instancia anterior si ya existía
-
+  
     userDropdownWrapper = document.createElement("div");
     userDropdownWrapper.id = "user-dropdown-wrapper";
     userDropdownWrapper.className = "mt-3"; // Espacio entre secciones
-
+  
     // Crear el <select> múltiple
     const selectElement = document.createElement("select");
     selectElement.setAttribute("multiple", "multiple");
     selectElement.className = "form-select";
     selectElement.style.minHeight = "250px"; // Altura personalizada
-
+  
     users.forEach((user) => {
       const option = document.createElement("option");
       option.value = user.id;
       option.innerText = user.name;
+      option.dataset.email = user.email; // Almacenar el email en un atributo data-email
       selectElement.appendChild(option);
     });
-
-    // Crear botón Apply
-    const applyButton = document.createElement("button");
-    applyButton.className = "btn btn-primary mt-2";
-    applyButton.innerText = "Apply";
-
-    applyButton.addEventListener("click", () => {
-      const selectedOptions = Array.from(selectElement.selectedOptions).map(opt => opt.value);
-      if (selectedOptions.length > 10) {
-        // Deselecciona la última opción seleccionada
-        selectedOptions[selectedOptions.length - 1].selected = false;
-
-        // Alerta al usuario (puedes usar modal o toast si prefieres)
-        alert("You can only select up to 10 users.");
-      }else{
-        console.log("Usuarios seleccionados:", selectedOptions);
-      }
-    });
-
+  
     // Agregar elementos al wrapper y luego al contenedor principal
     userDropdownWrapper.appendChild(selectElement);
-    userDropdownWrapper.appendChild(applyButton);
     menuContainer.appendChild(userDropdownWrapper);
+    
+    // Mover la inicialización del botón de búsqueda aquí, si es necesario
+    initializeSearchButton();
   }
-
+  
 });
 
 

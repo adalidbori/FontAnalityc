@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.css" />
   <!-- Bootstrap Icons -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-  
+
 </head>
 
 <body>
@@ -31,19 +31,37 @@
 
       <!-- Main Content -->
       <div class="col-md-9 col-lg-10 p-4">
-        <!-- Contenedor fijo para el date picker -->
+        <!-- Contenedor fijo para el date picker y el botón -->
         <div id="daterange-container" class="mb-4">
           <div class="fs-6">
-            <div class="col-md-2">
-              <label for="daterange">Date Range:</label>
-              <input type="text" id="daterange" name="daterange" class="form-control" />
+            <div class="row align-items-end">
+              <div class="col-md-3">
+                <label for="daterange">Date Range:</label>
+                <input type="text" id="daterange" name="daterange" class="form-control" />
+              </div>
+              <div class="col-md-2">
+                <button type="button" class="btn btn-primary w-100 searchButton">Search</button>
+              </div>
             </div>
           </div>
         </div>
         <!-- Contenedor dinámico para la tabla de empleados -->
         <div id="employee-content">
           <!-- La tabla de empleados se actualizará aquí mediante JavaScript -->
-          
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="myModal" class="modal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-body">
+          <h4>Did you already select the date range?</h4>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Not</button>
+          <button type="button" class="btn btn-primary modalYes">Yes</button>
         </div>
       </div>
     </div>

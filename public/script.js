@@ -1,4 +1,4 @@
-window.miVariable = "localhost";
+window.miVariable = "192.168.1.158";
 document.addEventListener("DOMContentLoaded", () => {
 
   // Mock data for departments (replace with actual data source)
@@ -270,7 +270,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       console.log('Sending to API:', { timestampStart, timestampEnd, registros });
 
-      const response = await fetch(`http://${window.miVariable || 'localhost'}:3001/getData`, {
+      const response = await fetch(`http://${window.miVariable}:3001/getData`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -302,7 +302,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       console.log('Sending to API:', { timestampStart, timestampEnd, inboxes });
 
-      const response = await fetch(`http://${window.miVariable || 'localhost'}:3001/getDataIndividuals`, {
+      const response = await fetch(`http://${window.miVariable}:3001/getDataIndividuals`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

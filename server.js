@@ -202,5 +202,5 @@ async function callFrontApi(requestBody, recordIndex) {
 }
 
 app.listen(3001, '0.0.0.0', () => {
-  console.log('Listing on http://localhost:3001');
+  console.log('Listing on http://192.168.1.158:3001');
 });

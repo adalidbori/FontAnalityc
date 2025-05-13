@@ -1,9 +1,9 @@
-window.miVariable = "192.168.1.158";
+window.miVariable = "localhost";
 document.addEventListener("DOMContentLoaded", () => {
 
   // Mock data for departments (replace with actual data source)
   const departments = [
-    { id: 8, name: "Arribal Notice", icon: "fas fa-bullhorn" },
+    { id: 8, name: "Arrival Notice", icon: "fas fa-bullhorn" },
     { id: 2, name: "Billing", icon: "fa-solid fa-calculator" },
     { id: 3, name: "Concierge", icon: "fas fa-users" },
     { id: 9, name: "Distribution", icon: "fa-solid fa-road" },

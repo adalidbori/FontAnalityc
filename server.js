@@ -61,7 +61,7 @@ app.post('/getData', async (req, res) => {
       };
 
       // Call FRONT API with retries
-      const result = await callFrontApi(requestBody, index + 1);
+      const result = await callFrontApi(requestBody, index + 1, false);
       apiResponses.push({
         recordIndex: index + 1,
         record,
@@ -121,7 +121,7 @@ app.post('/getDataIndividuals', async (req, res) => {
       };
 
       // Llamar a la API con reintentos
-      const result = await callFrontApi(requestBody, index + 1);
+      const result = await callFrontApi(requestBody, index + 1, true);
       apiResponses.push({
         recordIndex: index + 1,
         record,
@@ -154,10 +154,10 @@ app.post('/getDataIndividuals', async (req, res) => {
 
 
 // Function to call FRONT API with retries
-async function callFrontApi(requestBody, recordIndex) {
+async function callFrontApi(requestBody, recordIndex, isIndividual) {
   const maxRetries = 10;
   let retries = 0;
-
+  const API_KEY_TO_USE = (isIndividual) ? FRONT_API_KEY_INDIVIDUALS : FRONT_API_KEY;
   while (retries < maxRetries) {
     try {
       console.log(`Attempt ${retries + 1} for record ${recordIndex}:`, requestBody);
@@ -166,7 +166,7 @@ async function callFrontApi(requestBody, recordIndex) {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          Authorization: FRONT_API_KEY_INDIVIDUALS,
+          Authorization: API_KEY_TO_USE,
         },
         body: JSON.stringify(requestBody),
       });
@@ -202,5 +202,5 @@ async function callFrontApi(requestBody, recordIndex) {
 }
 
 app.listen(3001, '0.0.0.0', () => {
-  console.log('Listing on http://192.168.1.158:3001');
+  console.log('Listing on http://10.25.0.8:3001');
 });

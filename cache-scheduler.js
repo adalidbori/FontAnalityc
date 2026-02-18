@@ -15,24 +15,13 @@ require('dotenv').config();
 
 const ENDPOINT = process.env.ENDPOINT;
 const FRONT_API_KEY = process.env.FRONT_API_KEY;
-
-// Departamentos a pre-calcular
-const DEPARTMENTS = [
-  'Arrival Notice',
-  'Billing',
-  'Concierge',
-  'Distribution',
-  'Exports',
-  'Freight',
-  'ISF',
-  'Pricing'
-];
+const db = require('./db');
 
 // Rangos predefinidos
 const RANGES = ['yesterday', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth'];
 
-// Directorio de cache
-const CACHE_DIR = path.join(__dirname, 'cache');
+// Directorio de cache (configurable for Azure App Service)
+const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'cache');
 
 // Asegurar que existe el directorio de cache
 if (!fs.existsSync(CACHE_DIR)) {
@@ -111,10 +100,22 @@ function getDateRange(rangeName) {
 }
 
 /**
+ * Obtiene todos los departamentos (inboxes) desde la base de datos
+ */
+async function getDepartmentsFromDB() {
+  try {
+    const inboxes = await db.getAllInboxes();
+    return inboxes.map(inbox => inbox.name);
+  } catch (error) {
+    console.error('Error getting departments from database:', error.message);
+    return [];
+  }
+}
+
+/**
  * Obtiene usuarios de un departamento desde la base de datos
  */
 async function getUsersByDepartment(departmentName) {
-  const db = require('./db');
   try {
     const users = await db.getUsersByInboxName(departmentName);
     return users;
@@ -301,7 +302,17 @@ async function runPrecalculation(forceAll = false) {
   console.log(`Time: ${new Date().toISOString()}`);
   console.log('========================================\n');
 
-  for (const department of DEPARTMENTS) {
+  // Obtener departamentos dinámicamente de la base de datos
+  const departments = await getDepartmentsFromDB();
+
+  if (departments.length === 0) {
+    console.log('No departments found in database. Please add inboxes first.');
+    return;
+  }
+
+  console.log(`Found ${departments.length} departments: ${departments.join(', ')}\n`);
+
+  for (const department of departments) {
     console.log(`\n📁 Department: ${department}`);
     console.log('----------------------------------------');
 
@@ -363,7 +374,7 @@ module.exports = {
   readFromCache,
   runPrecalculation,
   scheduleJobs,
-  DEPARTMENTS,
+  getDepartmentsFromDB,
   RANGES,
 };
 

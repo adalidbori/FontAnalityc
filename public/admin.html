@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 
   <style>
     /* Admin-specific styles */
@@ -447,6 +447,11 @@
           </a>
         </div>
 
+        <!-- User Header -->
+        <div id="user-header" class="sidebar-user-header">
+          <!-- User info will be rendered here by auth.js -->
+        </div>
+
         <nav class="sidebar-nav">
           <div class="nav-section-title">Management</div>
           <div class="nav-item">
@@ -465,6 +470,12 @@
             <button class="nav-link" data-tab="assignments">
               <span class="nav-icon"><i class="fas fa-link"></i></span>
               <span>Assignments</span>
+            </button>
+          </div>
+          <div class="nav-item">
+            <button class="nav-link" data-tab="system-users">
+              <span class="nav-icon"><i class="fas fa-user-shield"></i></span>
+              <span>System Users</span>
             </button>
           </div>
 
@@ -577,6 +588,40 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- System Users Panel -->
+        <div id="panel-system-users" class="admin-panel">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-user-shield"></i> System Users</h3>
+              <button class="btn-add" onclick="openSystemUserModal()">
+                <i class="fas fa-plus"></i> Add System User
+              </button>
+            </div>
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="system-users-table">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+          <div style="padding: 20px; background: var(--bg-tertiary); border-radius: var(--radius-md); margin-top: 20px;">
+            <h4 style="margin-bottom: 12px; color: var(--text-primary);"><i class="fas fa-info-circle"></i> About System Users</h4>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
+              System users are people who can access this application. They must authenticate with Microsoft O365.<br>
+              <strong>Admin</strong> role: Full access to analytics and admin panel.<br>
+              <strong>User</strong> role: Access only to analytics dashboard.
+            </p>
           </div>
         </div>
       </main>
@@ -713,10 +758,57 @@
     </div>
   </div>
 
+  <!-- System User Modal -->
+  <div id="system-user-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="system-user-modal-title">Add System User</h3>
+        <button class="modal-close" onclick="closeSystemUserModal()">&times;</button>
+      </div>
+      <form id="system-user-form" onsubmit="saveSystemUser(event)">
+        <input type="hidden" id="system-user-id">
+        <div class="form-group">
+          <label class="form-label">Name *</label>
+          <input type="text" id="system-user-name" class="form-input" placeholder="e.g., John Doe" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email * (must match O365 account)</label>
+          <input type="email" id="system-user-email" class="form-input" placeholder="e.g., john@company.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role *</label>
+          <select id="system-user-role" class="form-input" required>
+            <option value="user">User (Analytics only)</option>
+            <option value="admin">Admin (Full access)</option>
+          </select>
+        </div>
+        <div class="form-group" id="system-user-active-group" style="display: none;">
+          <label class="form-checkbox">
+            <input type="checkbox" id="system-user-active" checked>
+            <span>Active (can login)</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeSystemUserModal()">Cancel</button>
+          <button type="submit" class="btn-save">Save System User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="toast"></div>
 
+  <!-- Auth JavaScript -->
+  <script src="auth.js?v=1"></script>
+
   <script>
+    // Check admin access on page load
+    Auth.checkAdmin().then(isAdmin => {
+      if (isAdmin) {
+        Auth.renderUserHeader();
+      }
+    });
     const API_BASE = window.location.origin;
 
     // Tab navigation
@@ -1212,9 +1304,126 @@
       showToast(`Selected: ${name}`, 'success');
     }
 
+    // ==========================================
+    // SYSTEM USERS
+    // ==========================================
+
+    async function loadSystemUsers() {
+      try {
+        const res = await fetch(`${API_BASE}/api/system-users`);
+        const users = await res.json();
+
+        const tbody = document.getElementById('system-users-table');
+        tbody.innerHTML = users.map(user => `
+          <tr>
+            <td><strong>${user.name}</strong></td>
+            <td>${user.email}</td>
+            <td>
+              <span class="badge ${user.role === 'admin' ? 'badge-count' : 'badge-individual'}">
+                ${user.role === 'admin' ? 'Admin' : 'User'}
+              </span>
+            </td>
+            <td>
+              <span class="badge ${user.is_active ? 'badge-individual' : ''}" style="${!user.is_active ? 'background: rgba(239, 68, 68, 0.15); color: var(--danger);' : ''}">
+                ${user.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </td>
+            <td>
+              <button class="btn-action btn-edit" onclick="editSystemUser(${user.id})">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+              <button class="btn-action btn-delete" onclick="deleteSystemUser(${user.id}, '${user.name.replace(/'/g, "\\'")}')">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading system users:', error);
+        showToast('Error loading system users', 'error');
+      }
+    }
+
+    function openSystemUserModal(user = null) {
+      const isEdit = !!user;
+      document.getElementById('system-user-modal-title').textContent = isEdit ? 'Edit System User' : 'Add System User';
+      document.getElementById('system-user-id').value = user?.id || '';
+      document.getElementById('system-user-name').value = user?.name || '';
+      document.getElementById('system-user-email').value = user?.email || '';
+      document.getElementById('system-user-role').value = user?.role || 'user';
+      document.getElementById('system-user-active').checked = user?.is_active !== false;
+
+      // Show/hide active checkbox based on mode
+      document.getElementById('system-user-active-group').style.display = isEdit ? 'block' : 'none';
+
+      document.getElementById('system-user-modal').classList.add('active');
+    }
+
+    function closeSystemUserModal() {
+      document.getElementById('system-user-modal').classList.remove('active');
+      document.getElementById('system-user-form').reset();
+    }
+
+    async function editSystemUser(id) {
+      const res = await fetch(`${API_BASE}/api/system-users/${id}`);
+      const user = await res.json();
+      openSystemUserModal(user);
+    }
+
+    async function saveSystemUser(event) {
+      event.preventDefault();
+
+      const id = document.getElementById('system-user-id').value;
+      const data = {
+        name: document.getElementById('system-user-name').value,
+        email: document.getElementById('system-user-email').value,
+        role: document.getElementById('system-user-role').value,
+        is_active: document.getElementById('system-user-active').checked
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/system-users${id ? `/${id}` : ''}`, {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error);
+        }
+
+        showToast(`System user ${id ? 'updated' : 'created'} successfully`);
+        closeSystemUserModal();
+        loadSystemUsers();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function deleteSystemUser(id, name) {
+      if (!confirm(`Are you sure you want to delete "${name}"? They will no longer be able to access the system.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/system-users/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || 'Failed to delete');
+        }
+
+        showToast('System user deleted successfully');
+        loadSystemUsers();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
     // Initial load
     loadInboxes();
     loadUsers();
+    loadSystemUsers();
     loadFrontChannels();
     loadFrontTeammates();
   </script>

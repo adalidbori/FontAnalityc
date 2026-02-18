@@ -1,1 +1,15 @@
+# Environment variables
 .env
+
+# Dependencies
+node_modules/
+
+# Cache files
+cache/
+
+# IDE
+.claude/
+.vscode/
+
+# Logs
+*.log

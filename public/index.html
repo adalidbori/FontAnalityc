@@ -22,7 +22,7 @@
   <!-- DataTables CSS -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
   <!-- Custom Styles -->
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 
 <body>
@@ -38,6 +38,11 @@
             </div>
             <span class="logo-text">Front Analytics</span>
           </a>
+        </div>
+
+        <!-- User Header -->
+        <div id="user-header" class="sidebar-user-header">
+          <!-- User info will be rendered here by auth.js -->
         </div>
 
         <!-- Navigation -->
@@ -152,8 +157,16 @@
   <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
   <!-- Lottie Animations-->
   <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  <!-- Auth JavaScript -->
+  <script src="auth.js?v=1"></script>
   <!-- Custom JavaScript -->
-  <script src="script.js?v=5"></script>
+  <script src="script.js?v=6"></script>
+  <script>
+    // Render user header on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      Auth.renderUserHeader();
+    });
+  </script>
 </body>
 
 </html>

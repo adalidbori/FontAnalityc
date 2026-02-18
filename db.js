@@ -66,12 +66,28 @@ async function initializeDatabase() {
       )
     `);
 
+    // Tabla de system_users (usuarios con acceso al sistema - autenticación)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS system_users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+        is_active BOOLEAN DEFAULT TRUE,
+        azure_oid VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Índices para mejor rendimiento
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_users_teammate_id ON users(teammate_id);
       CREATE INDEX IF NOT EXISTS idx_inboxes_code ON inboxes(code);
       CREATE INDEX IF NOT EXISTS idx_user_inbox_user ON user_inbox(user_id);
       CREATE INDEX IF NOT EXISTS idx_user_inbox_inbox ON user_inbox(inbox_id);
+      CREATE INDEX IF NOT EXISTS idx_system_users_email ON system_users(email);
+      CREATE INDEX IF NOT EXISTS idx_system_users_azure_oid ON system_users(azure_oid);
     `);
 
     console.log('Database tables initialized successfully');
@@ -364,6 +380,81 @@ async function migrateFromJSON(usersData, individualUsersData) {
 }
 
 // ==========================================
+// SYSTEM USER CRUD OPERATIONS (Authentication)
+// ==========================================
+
+async function getSystemUserByEmail(email) {
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE LOWER(email) = LOWER($1)',
+    [email]
+  );
+  return result.rows[0];
+}
+
+async function getSystemUserById(id) {
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE id = $1',
+    [id]
+  );
+  return result.rows[0];
+}
+
+async function getSystemUserByAzureOid(azureOid) {
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE azure_oid = $1',
+    [azureOid]
+  );
+  return result.rows[0];
+}
+
+async function getAllSystemUsers() {
+  const result = await pool.query(
+    'SELECT * FROM system_users ORDER BY name'
+  );
+  return result.rows;
+}
+
+async function createSystemUser(email, name, role = 'user', azureOid = null) {
+  const result = await pool.query(
+    `INSERT INTO system_users (email, name, role, azure_oid)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [email, name, role, azureOid]
+  );
+  return result.rows[0];
+}
+
+async function updateSystemUser(id, email, name, role, isActive) {
+  const result = await pool.query(
+    `UPDATE system_users
+     SET email = $2, name = $3, role = $4, is_active = $5, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, email, name, role, isActive]
+  );
+  return result.rows[0];
+}
+
+async function updateSystemUserAzureOid(id, azureOid) {
+  const result = await pool.query(
+    `UPDATE system_users
+     SET azure_oid = $2, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, azureOid]
+  );
+  return result.rows[0];
+}
+
+async function deleteSystemUser(id) {
+  const result = await pool.query(
+    'DELETE FROM system_users WHERE id = $1 RETURNING *',
+    [id]
+  );
+  return result.rows[0];
+}
+
+// ==========================================
 // EXPORTS
 // ==========================================
 
@@ -390,6 +481,15 @@ module.exports = {
   getUsersByInbox,
   getUsersByInboxName,
   getIndividualUsers,
+  // System Users (Authentication)
+  getSystemUserByEmail,
+  getSystemUserById,
+  getSystemUserByAzureOid,
+  getAllSystemUsers,
+  createSystemUser,
+  updateSystemUser,
+  updateSystemUserAzureOid,
+  deleteSystemUser,
   // Migration
   migrateFromJSON
 };

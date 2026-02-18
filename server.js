@@ -181,6 +181,17 @@ passport.deserializeUser(async (id, done) => {
 
 // Check if user is authenticated
 function requireAuth(req, res, next) {
+  // Debug logging for production
+  if (isProduction) {
+    console.log('requireAuth check:', {
+      path: req.path,
+      isAuthenticated: req.isAuthenticated(),
+      hasSession: !!req.session,
+      sessionID: req.sessionID,
+      hasUser: !!req.user
+    });
+  }
+
   if (req.isAuthenticated()) {
     return next();
   }

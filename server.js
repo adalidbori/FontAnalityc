@@ -400,6 +400,14 @@ app.get('/getCachedData', requireAuth, (req, res) => {
     const generatedAt = new Date(cachedData.generatedAt);
     const ageMinutes = Math.floor((Date.now() - generatedAt.getTime()) / (1000 * 60));
 
+    console.log('Serving cached data:', {
+      department,
+      range,
+      totalRecords: cachedData.totalRecords,
+      apiResponsesLength: cachedData.apiResponses?.length || 0,
+      hasApiResponses: !!cachedData.apiResponses
+    });
+
     res.status(200).json({
       ...cachedData,
       cacheAge: `${ageMinutes} minutes ago`,

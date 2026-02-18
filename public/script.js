@@ -307,12 +307,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (apiResponses) {
       console.log('Processing apiResponses:', apiResponses.length, 'records');
+      console.log('First result full structure:', JSON.stringify(apiResponses[0], null, 2));
       let rowsAdded = 0;
       apiResponses.forEach((result, idx) => {
         console.log(`Row ${idx}:`, {
           hasApiData: !!result.apiData,
           hasMetrics: result.apiData ? !!result.apiData.metrics : false,
-          record: result.record?.name
+          record: result.record?.name,
+          error: result.error || null
         });
         if (result.apiData && result.apiData.metrics) {
           rowsAdded++;

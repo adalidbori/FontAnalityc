@@ -39,8 +39,13 @@ app.use(cookieParser());
 // SESSION & PASSPORT CONFIGURATION
 // ==========================================
 
-// Session configuration with PostgreSQL store
+// Trust proxy for Azure App Service (required for secure cookies behind load balancer)
 const isProduction = process.env.NODE_ENV === 'production';
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
+
+// Session configuration with PostgreSQL store
 app.use(session({
   store: new pgSession({
     pool: db.pool,
@@ -287,7 +292,14 @@ app.post('/auth/callback', (req, res, next) => {
 
       const returnTo = req.session.returnTo || '/';
       delete req.session.returnTo;
-      res.redirect(returnTo);
+
+      // Save session before redirect to ensure it persists
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('Session save error:', saveErr);
+        }
+        res.redirect(returnTo);
+      });
     });
   })(req, res, next);
 });

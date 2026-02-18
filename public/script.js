@@ -1,4 +1,4 @@
-window.miVariable = "localhost";
+// URLs are relative for production compatibility
 document.addEventListener("DOMContentLoaded", () => {
 
   // Mapeo de rangos predefinidos a nombres de cache
@@ -46,7 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Load departments from database
   async function loadDepartments() {
     try {
-      const response = await fetch(`http://${window.miVariable}:3001/api/inboxes`);
+      const response = await fetch('/api/inboxes');
       if (!response.ok) throw new Error('Failed to load inboxes');
 
       const inboxes = await response.json();
@@ -413,7 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        `http://${window.miVariable}:3001/getCachedData?department=${encodeURIComponent(departmentName)}&range=${cacheRange}`
+        `/getCachedData?department=${encodeURIComponent(departmentName)}&range=${cacheRange}`
       );
 
       if (!response.ok) {
@@ -527,7 +527,7 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error('Faltan datos requeridos: timestampStart, timestampEnd o registros');
       }
 
-      const response = await fetch(`http://${window.miVariable}:3001/getData`, {
+      const response = await fetch('/getData', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -554,7 +554,7 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error('Faltan datos requeridos: timestampStart, timestampEnd o registros');
       }
 
-      const response = await fetch(`http://${window.miVariable}:3001/getDataIndividuals`, {
+      const response = await fetch('/getDataIndividuals', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -579,7 +579,7 @@ document.addEventListener("DOMContentLoaded", () => {
     nombreInbox = !nombreInbox ? 'Secto' : nombreInbox;
     try {
       // Usar nuevo endpoint de la API (PostgreSQL)
-      const respuesta = await fetch(`http://${window.miVariable}:3001/api/analytics/inbox/${encodeURIComponent(nombreInbox)}`);
+      const respuesta = await fetch(`/api/analytics/inbox/${encodeURIComponent(nombreInbox)}`);
       if (!respuesta.ok) {
         throw new Error(`Error al obtener datos: ${respuesta.status} ${respuesta.statusText}`);
       }
@@ -594,7 +594,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function obtenerRegistrosindividuales() {
     try {
       // Usar nuevo endpoint de la API (PostgreSQL)
-      const respuesta = await fetch(`http://${window.miVariable}:3001/api/analytics/individuals`);
+      const respuesta = await fetch('/api/analytics/individuals');
       if (!respuesta.ok) {
         throw new Error(`Error al obtener datos: ${respuesta.status} ${respuesta.statusText}`);
       }

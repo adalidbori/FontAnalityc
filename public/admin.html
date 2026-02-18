@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - Front Analytics</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="styles.css?v=5">
+
+  <style>
+    /* Admin-specific styles */
+    .admin-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .admin-tab {
+      padding: 12px 24px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .admin-tab:hover {
+      background: var(--bg-glass-hover);
+      color: var(--text-primary);
+    }
+
+    .admin-tab.active {
+      background: var(--accent-gradient);
+      color: white;
+      border-color: transparent;
+    }
+
+    .admin-panel {
+      display: none;
+    }
+
+    .admin-panel.active {
+      display: block;
+    }
+
+    .admin-panel .table-container {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .admin-panel .table-container .admin-table {
+      margin: 0;
+    }
+
+    .table-content {
+      padding: 0;
+    }
+
+    .panel-content {
+      padding: 24px;
+    }
+
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 24px;
+      margin: 0;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+
+    .admin-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+    }
+
+    .admin-title i {
+      color: var(--accent-primary);
+      font-size: 1rem;
+    }
+
+    .btn-add {
+      background: var(--accent-gradient);
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all var(--transition-fast);
+      font-size: 0.875rem;
+      white-space: nowrap;
+    }
+
+    .btn-add:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .admin-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .admin-table th {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .admin-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-primary);
+      font-size: 0.9rem;
+    }
+
+    .admin-table tr:hover td {
+      background: var(--bg-glass-hover);
+    }
+
+    .btn-action {
+      padding: 6px 12px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      margin-right: 6px;
+    }
+
+    .btn-edit {
+      background: rgba(99, 102, 241, 0.15);
+      color: var(--accent-primary);
+    }
+
+    .btn-edit:hover {
+      background: rgba(99, 102, 241, 0.25);
+    }
+
+    .btn-delete {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    .btn-delete:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    .btn-assign {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+    }
+
+    .btn-assign:hover {
+      background: rgba(16, 185, 129, 0.25);
+    }
+
+    /* Modal styles */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 100%;
+      max-width: 500px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .modal-close:hover {
+      color: var(--text-primary);
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      transition: all var(--transition-fast);
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+
+    .form-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .form-checkbox input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent-primary);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .btn-cancel {
+      flex: 1;
+      padding: 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .btn-cancel:hover {
+      background: var(--bg-glass-hover);
+      color: var(--text-primary);
+    }
+
+    .btn-save {
+      flex: 1;
+      padding: 12px;
+      background: var(--accent-gradient);
+      border: none;
+      border-radius: var(--radius-md);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-save:hover {
+      box-shadow: var(--shadow-glow);
+    }
+
+    /* Badge styles */
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge-individual {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+    }
+
+    .badge-count {
+      background: rgba(99, 102, 241, 0.15);
+      color: var(--accent-primary);
+    }
+
+    /* Assignment panel */
+    .assignment-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .assignment-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+
+    .assignment-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text-primary);
+    }
+
+    .assignment-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .assignment-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 6px;
+      background: var(--bg-tertiary);
+    }
+
+    .assignment-item:hover {
+      background: var(--bg-glass-hover);
+    }
+
+    .inbox-select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+    }
+
+    /* Toast notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 14px 20px;
+      border-radius: var(--radius-md);
+      color: white;
+      font-weight: 500;
+      z-index: 2000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s ease;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast-success {
+      background: var(--success);
+    }
+
+    .toast-error {
+      background: var(--danger);
+    }
+
+    /* Back link */
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+      transition: color var(--transition-fast);
+    }
+
+    .back-link:hover {
+      color: var(--accent-primary);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app-wrapper">
+    <div class="main-container">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <a href="/" class="logo">
+            <div class="logo-icon">
+              <i class="fas fa-cog"></i>
+            </div>
+            <span class="logo-text">Admin Panel</span>
+          </a>
+        </div>
+
+        <nav class="sidebar-nav">
+          <div class="nav-section-title">Management</div>
+          <div class="nav-item">
+            <button class="nav-link active" data-tab="inboxes">
+              <span class="nav-icon"><i class="fas fa-inbox"></i></span>
+              <span>Inboxes</span>
+            </button>
+          </div>
+          <div class="nav-item">
+            <button class="nav-link" data-tab="users">
+              <span class="nav-icon"><i class="fas fa-users"></i></span>
+              <span>Users</span>
+            </button>
+          </div>
+          <div class="nav-item">
+            <button class="nav-link" data-tab="assignments">
+              <span class="nav-icon"><i class="fas fa-link"></i></span>
+              <span>Assignments</span>
+            </button>
+          </div>
+
+          <div class="nav-section-title" style="margin-top: 24px;">Navigation</div>
+          <div class="nav-item">
+            <a href="/" class="nav-link">
+              <span class="nav-icon"><i class="fas fa-chart-line"></i></span>
+              <span>Back to Analytics</span>
+            </a>
+          </div>
+        </nav>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <a href="/" class="back-link">
+          <i class="fas fa-arrow-left"></i>
+          Back to Analytics
+        </a>
+
+        <header class="content-header">
+          <h1 class="page-title">
+            <div class="page-title-icon">
+              <i class="fas fa-cog"></i>
+            </div>
+            <span>Administration</span>
+          </h1>
+          <p class="page-subtitle">Manage inboxes, users, and their assignments</p>
+        </header>
+
+        <!-- Inboxes Panel -->
+        <div id="panel-inboxes" class="admin-panel active">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-inbox"></i> Inboxes</h3>
+              <button class="btn-add" onclick="openInboxModal()">
+                <i class="fas fa-plus"></i> Add Inbox
+              </button>
+            </div>
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Code</th>
+                  <th>Users</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="inboxes-table">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Users Panel -->
+        <div id="panel-users" class="admin-panel">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-users"></i> Users</h3>
+              <button class="btn-add" onclick="openUserModal()">
+                <i class="fas fa-plus"></i> Add User
+              </button>
+            </div>
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Teammate ID</th>
+                  <th>Type</th>
+                  <th>Inboxes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Assignments Panel -->
+        <div id="panel-assignments" class="admin-panel">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-link"></i> User-Inbox Assignments</h3>
+            </div>
+
+            <div class="panel-content">
+              <div class="form-group">
+                <label class="form-label">Select Inbox</label>
+                <select id="assignment-inbox-select" class="inbox-select" onchange="loadInboxUsers()">
+                  <option value="">-- Select an inbox --</option>
+                </select>
+              </div>
+
+              <div class="assignment-container">
+                <div class="assignment-box">
+                  <h4 class="assignment-title"><i class="fas fa-user-check"></i> Assigned Users</h4>
+                  <div id="assigned-users" class="assignment-list">
+                    <p style="color: var(--text-muted); text-align: center;">Select an inbox</p>
+                  </div>
+                </div>
+                <div class="assignment-box">
+                  <h4 class="assignment-title"><i class="fas fa-user-plus"></i> Available Users</h4>
+                  <div id="available-users" class="assignment-list">
+                    <p style="color: var(--text-muted); text-align: center;">Select an inbox</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Inbox Modal -->
+  <div id="inbox-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="inbox-modal-title">Add Inbox</h3>
+        <button class="modal-close" onclick="closeInboxModal()">&times;</button>
+      </div>
+      <form id="inbox-form" onsubmit="saveInbox(event)">
+        <input type="hidden" id="inbox-id">
+
+        <!-- Front Channel Selector (only for new inboxes) -->
+        <div id="channel-selector" class="form-group">
+          <label class="form-label">
+            <i class="fas fa-search"></i> Search Front Channel
+          </label>
+          <div style="position: relative;">
+            <input type="text" id="channel-search" class="form-input"
+                   placeholder="Start typing channel name..."
+                   autocomplete="off">
+            <div id="channel-dropdown" style="
+              display: none;
+              position: absolute;
+              top: 100%;
+              left: 0;
+              right: 0;
+              max-height: 200px;
+              overflow-y: auto;
+              background: var(--bg-tertiary);
+              border: 1px solid var(--border-color);
+              border-radius: var(--radius-md);
+              margin-top: 4px;
+              z-index: 100;
+            "></div>
+          </div>
+          <small style="color: var(--text-muted); font-size: 0.75rem;">
+            Select a shared channel from Front to auto-fill the fields below
+          </small>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-color); margin: 16px 0;">
+
+        <div class="form-group">
+          <label class="form-label">Name *</label>
+          <input type="text" id="inbox-name" class="form-input" placeholder="e.g., Customer Support" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Code *</label>
+          <input type="text" id="inbox-code" class="form-input" placeholder="e.g., cha_xyz123" required readonly
+                 style="background: var(--bg-primary); cursor: not-allowed;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <input type="text" id="inbox-description" class="form-input" placeholder="Optional description">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeInboxModal()">Cancel</button>
+          <button type="submit" class="btn-save">Save Inbox</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Modal -->
+  <div id="user-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="user-modal-title">Add User</h3>
+        <button class="modal-close" onclick="closeUserModal()">&times;</button>
+      </div>
+      <form id="user-form" onsubmit="saveUser(event)">
+        <input type="hidden" id="user-id">
+
+        <!-- Front Teammate Selector (only for new users) -->
+        <div id="teammate-selector" class="form-group">
+          <label class="form-label">
+            <i class="fas fa-search"></i> Search Front Teammate
+          </label>
+          <div style="position: relative;">
+            <input type="text" id="teammate-search" class="form-input"
+                   placeholder="Start typing name or email..."
+                   autocomplete="off">
+            <div id="teammate-dropdown" style="
+              display: none;
+              position: absolute;
+              top: 100%;
+              left: 0;
+              right: 0;
+              max-height: 200px;
+              overflow-y: auto;
+              background: var(--bg-tertiary);
+              border: 1px solid var(--border-color);
+              border-radius: var(--radius-md);
+              margin-top: 4px;
+              z-index: 100;
+            "></div>
+          </div>
+          <small style="color: var(--text-muted); font-size: 0.75rem;">
+            Select a teammate from Front to auto-fill the fields below
+          </small>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-color); margin: 16px 0;">
+
+        <div class="form-group">
+          <label class="form-label">Name *</label>
+          <input type="text" id="user-name" class="form-input" placeholder="e.g., John Doe" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email *</label>
+          <input type="email" id="user-email" class="form-input" placeholder="e.g., john@company.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Teammate ID *</label>
+          <input type="text" id="user-teammate-id" class="form-input" placeholder="e.g., tea_abc123" required readonly
+                 style="background: var(--bg-primary); cursor: not-allowed;">
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="user-is-individual">
+            <span>Individual User (appears in individual analytics)</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeUserModal()">Cancel</button>
+          <button type="submit" class="btn-save">Save User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    // Tab navigation
+    document.querySelectorAll('.nav-link[data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+
+        document.querySelectorAll('.nav-link[data-tab]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById(`panel-${tab}`).classList.add('active');
+
+        if (tab === 'assignments') {
+          loadInboxesForSelect();
+        }
+      });
+    });
+
+    // Toast notification
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast toast-${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ==========================================
+    // INBOXES
+    // ==========================================
+
+    async function loadInboxes() {
+      try {
+        const res = await fetch(`${API_BASE}/api/inboxes`);
+        const inboxes = await res.json();
+
+        const tbody = document.getElementById('inboxes-table');
+        tbody.innerHTML = inboxes.map(inbox => `
+          <tr>
+            <td><strong>${inbox.name}</strong></td>
+            <td><code>${inbox.code}</code></td>
+            <td><span class="badge badge-count">${inbox.user_count} users</span></td>
+            <td>
+              <button class="btn-action btn-edit" onclick="editInbox(${inbox.id})">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+              <button class="btn-action btn-delete" onclick="deleteInbox(${inbox.id}, '${inbox.name}')">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading inboxes:', error);
+        showToast('Error loading inboxes', 'error');
+      }
+    }
+
+    function openInboxModal(inbox = null) {
+      const isEdit = !!inbox;
+      document.getElementById('inbox-modal-title').textContent = isEdit ? 'Edit Inbox' : 'Add Inbox';
+      document.getElementById('inbox-id').value = inbox?.id || '';
+      document.getElementById('inbox-name').value = inbox?.name || '';
+      document.getElementById('inbox-code').value = inbox?.code || '';
+      document.getElementById('inbox-description').value = inbox?.description || '';
+
+      // Show/hide channel selector based on mode
+      const channelSelector = document.getElementById('channel-selector');
+      const codeInput = document.getElementById('inbox-code');
+
+      if (isEdit) {
+        channelSelector.style.display = 'none';
+        codeInput.readOnly = true;
+        codeInput.style.background = 'var(--bg-primary)';
+        codeInput.style.cursor = 'not-allowed';
+      } else {
+        channelSelector.style.display = 'block';
+        codeInput.readOnly = true;
+        document.getElementById('channel-search').value = '';
+      }
+
+      document.getElementById('inbox-modal').classList.add('active');
+    }
+
+    function closeInboxModal() {
+      document.getElementById('inbox-modal').classList.remove('active');
+      document.getElementById('inbox-form').reset();
+      document.getElementById('channel-search').value = '';
+      document.getElementById('channel-dropdown').style.display = 'none';
+    }
+
+    async function editInbox(id) {
+      const res = await fetch(`${API_BASE}/api/inboxes/${id}`);
+      const inbox = await res.json();
+      openInboxModal(inbox);
+    }
+
+    async function saveInbox(event) {
+      event.preventDefault();
+
+      const id = document.getElementById('inbox-id').value;
+      const data = {
+        name: document.getElementById('inbox-name').value,
+        code: document.getElementById('inbox-code').value,
+        description: document.getElementById('inbox-description').value
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/inboxes${id ? `/${id}` : ''}`, {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error);
+        }
+
+        showToast(`Inbox ${id ? 'updated' : 'created'} successfully`);
+        closeInboxModal();
+        loadInboxes();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function deleteInbox(id, name) {
+      if (!confirm(`Are you sure you want to delete "${name}"? This will also remove all user assignments.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/inboxes/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+
+        showToast('Inbox deleted successfully');
+        loadInboxes();
+      } catch (error) {
+        showToast('Error deleting inbox', 'error');
+      }
+    }
+
+    // ==========================================
+    // USERS
+    // ==========================================
+
+    async function loadUsers() {
+      try {
+        const res = await fetch(`${API_BASE}/api/users`);
+        const users = await res.json();
+
+        const tbody = document.getElementById('users-table');
+        tbody.innerHTML = users.map(user => `
+          <tr>
+            <td><strong>${user.name}</strong></td>
+            <td>${user.email}</td>
+            <td><code>${user.teammate_id}</code></td>
+            <td>${user.is_individual ? '<span class="badge badge-individual">Individual</span>' : '-'}</td>
+            <td>${user.inboxes.length > 0 ? user.inboxes.map(i => i.inbox_name).join(', ') : '-'}</td>
+            <td>
+              <button class="btn-action btn-edit" onclick="editUser(${user.id})">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+              <button class="btn-action btn-delete" onclick="deleteUser(${user.id}, '${user.name}')">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading users:', error);
+        showToast('Error loading users', 'error');
+      }
+    }
+
+    function openUserModal(user = null) {
+      const isEdit = !!user;
+      document.getElementById('user-modal-title').textContent = isEdit ? 'Edit User' : 'Add User';
+      document.getElementById('user-id').value = user?.id || '';
+      document.getElementById('user-name').value = user?.name || '';
+      document.getElementById('user-email').value = user?.email || '';
+      document.getElementById('user-teammate-id').value = user?.teammate_id || '';
+      document.getElementById('user-is-individual').checked = user?.is_individual || false;
+
+      // Show/hide teammate selector based on mode
+      const teammateSelector = document.getElementById('teammate-selector');
+      const teammateIdInput = document.getElementById('user-teammate-id');
+
+      if (isEdit) {
+        teammateSelector.style.display = 'none';
+        teammateIdInput.readOnly = true;
+        teammateIdInput.style.background = 'var(--bg-primary)';
+        teammateIdInput.style.cursor = 'not-allowed';
+      } else {
+        teammateSelector.style.display = 'block';
+        teammateIdInput.readOnly = true;
+        document.getElementById('teammate-search').value = '';
+      }
+
+      document.getElementById('user-modal').classList.add('active');
+    }
+
+    function closeUserModal() {
+      document.getElementById('user-modal').classList.remove('active');
+      document.getElementById('user-form').reset();
+      document.getElementById('teammate-search').value = '';
+      document.getElementById('teammate-dropdown').style.display = 'none';
+    }
+
+    async function editUser(id) {
+      const res = await fetch(`${API_BASE}/api/users/${id}`);
+      const user = await res.json();
+      openUserModal(user);
+    }
+
+    async function saveUser(event) {
+      event.preventDefault();
+
+      const id = document.getElementById('user-id').value;
+      const data = {
+        name: document.getElementById('user-name').value,
+        email: document.getElementById('user-email').value,
+        teammate_id: document.getElementById('user-teammate-id').value,
+        is_individual: document.getElementById('user-is-individual').checked
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/users${id ? `/${id}` : ''}`, {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error);
+        }
+
+        showToast(`User ${id ? 'updated' : 'created'} successfully`);
+        closeUserModal();
+        loadUsers();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function deleteUser(id, name) {
+      if (!confirm(`Are you sure you want to delete "${name}"?`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/users/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+
+        showToast('User deleted successfully');
+        loadUsers();
+      } catch (error) {
+        showToast('Error deleting user', 'error');
+      }
+    }
+
+    // ==========================================
+    // ASSIGNMENTS
+    // ==========================================
+
+    let allUsers = [];
+
+    async function loadInboxesForSelect() {
+      try {
+        const res = await fetch(`${API_BASE}/api/inboxes`);
+        const inboxes = await res.json();
+
+        const select = document.getElementById('assignment-inbox-select');
+        select.innerHTML = '<option value="">-- Select an inbox --</option>' +
+          inboxes.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+
+        // Load all users
+        const usersRes = await fetch(`${API_BASE}/api/users`);
+        allUsers = await usersRes.json();
+      } catch (error) {
+        console.error('Error loading data:', error);
+      }
+    }
+
+    async function loadInboxUsers() {
+      const inboxId = document.getElementById('assignment-inbox-select').value;
+
+      if (!inboxId) {
+        document.getElementById('assigned-users').innerHTML =
+          '<p style="color: var(--text-muted); text-align: center;">Select an inbox</p>';
+        document.getElementById('available-users').innerHTML =
+          '<p style="color: var(--text-muted); text-align: center;">Select an inbox</p>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/inboxes/${inboxId}/users`);
+        const assignedUsers = await res.json();
+        const assignedIds = assignedUsers.map(u => u.id);
+
+        // Assigned users
+        document.getElementById('assigned-users').innerHTML = assignedUsers.length > 0
+          ? assignedUsers.map(u => `
+              <div class="assignment-item">
+                <span>${u.name}</span>
+                <button class="btn-action btn-delete" onclick="removeFromInbox(${u.id}, ${inboxId})">
+                  <i class="fas fa-minus"></i> Remove
+                </button>
+              </div>
+            `).join('')
+          : '<p style="color: var(--text-muted); text-align: center;">No users assigned</p>';
+
+        // Available users (not assigned)
+        const availableUsers = allUsers.filter(u => !assignedIds.includes(u.id));
+        document.getElementById('available-users').innerHTML = availableUsers.length > 0
+          ? availableUsers.map(u => `
+              <div class="assignment-item">
+                <span>${u.name}</span>
+                <button class="btn-action btn-assign" onclick="assignToInbox(${u.id}, ${inboxId})">
+                  <i class="fas fa-plus"></i> Add
+                </button>
+              </div>
+            `).join('')
+          : '<p style="color: var(--text-muted); text-align: center;">All users assigned</p>';
+
+      } catch (error) {
+        console.error('Error loading inbox users:', error);
+      }
+    }
+
+    async function assignToInbox(userId, inboxId) {
+      try {
+        await fetch(`${API_BASE}/api/inboxes/${inboxId}/users/${userId}`, { method: 'POST' });
+        showToast('User assigned to inbox');
+        loadInboxUsers();
+        loadInboxes();
+      } catch (error) {
+        showToast('Error assigning user', 'error');
+      }
+    }
+
+    async function removeFromInbox(userId, inboxId) {
+      try {
+        await fetch(`${API_BASE}/api/inboxes/${inboxId}/users/${userId}`, { method: 'DELETE' });
+        showToast('User removed from inbox');
+        loadInboxUsers();
+        loadInboxes();
+      } catch (error) {
+        showToast('Error removing user', 'error');
+      }
+    }
+
+    // ==========================================
+    // FRONT CHANNELS SELECTOR
+    // ==========================================
+
+    let frontChannels = [];
+
+    async function loadFrontChannels() {
+      try {
+        const res = await fetch(`${API_BASE}/api/front/channels`);
+        if (!res.ok) throw new Error('Failed to load channels');
+        frontChannels = await res.json();
+        console.log(`Loaded ${frontChannels.length} shared channels from Front`);
+      } catch (error) {
+        console.error('Error loading Front channels:', error);
+      }
+    }
+
+    // Setup channel search
+    const channelSearch = document.getElementById('channel-search');
+    const channelDropdown = document.getElementById('channel-dropdown');
+
+    channelSearch.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+
+      if (query.length < 1) {
+        channelDropdown.style.display = 'none';
+        return;
+      }
+
+      const matches = frontChannels.filter(c =>
+        c.name.toLowerCase().includes(query) ||
+        c.address?.toLowerCase().includes(query)
+      ).slice(0, 10);
+
+      if (matches.length === 0) {
+        channelDropdown.innerHTML = `
+          <div style="padding: 12px; color: var(--text-muted); text-align: center;">
+            No channels found
+          </div>
+        `;
+      } else {
+        channelDropdown.innerHTML = matches.map(c => `
+          <div class="channel-option" onclick="selectChannel('${c.id}', '${c.name.replace(/'/g, "\\'")}')"
+               style="padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-color);"
+               onmouseover="this.style.background='var(--bg-glass-hover)'"
+               onmouseout="this.style.background='transparent'">
+            <div style="font-weight: 500; color: var(--text-primary);">${c.name}</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">${c.id}</div>
+          </div>
+        `).join('');
+      }
+
+      channelDropdown.style.display = 'block';
+    });
+
+    channelSearch.addEventListener('blur', () => {
+      setTimeout(() => {
+        channelDropdown.style.display = 'none';
+      }, 200);
+    });
+
+    function selectChannel(id, name) {
+      document.getElementById('inbox-code').value = id;
+      document.getElementById('inbox-name').value = name;
+      channelSearch.value = `${name} (${id})`;
+      channelDropdown.style.display = 'none';
+
+      showToast(`Selected: ${name}`, 'success');
+    }
+
+    // ==========================================
+    // FRONT TEAMMATES SELECTOR
+    // ==========================================
+
+    let frontTeammates = [];
+
+    async function loadFrontTeammates() {
+      try {
+        const res = await fetch(`${API_BASE}/api/front/teammates`);
+        if (!res.ok) throw new Error('Failed to load teammates');
+        frontTeammates = await res.json();
+        console.log(`Loaded ${frontTeammates.length} teammates from Front`);
+      } catch (error) {
+        console.error('Error loading Front teammates:', error);
+      }
+    }
+
+    // Setup teammate search
+    const teammateSearch = document.getElementById('teammate-search');
+    const teammateDropdown = document.getElementById('teammate-dropdown');
+
+    teammateSearch.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+
+      if (query.length < 2) {
+        teammateDropdown.style.display = 'none';
+        return;
+      }
+
+      const matches = frontTeammates.filter(t =>
+        t.name.toLowerCase().includes(query) ||
+        t.email.toLowerCase().includes(query)
+      ).slice(0, 10);
+
+      if (matches.length === 0) {
+        teammateDropdown.innerHTML = `
+          <div style="padding: 12px; color: var(--text-muted); text-align: center;">
+            No teammates found
+          </div>
+        `;
+      } else {
+        teammateDropdown.innerHTML = matches.map(t => `
+          <div class="teammate-option" onclick="selectTeammate('${t.id}', '${t.email}', '${t.name.replace(/'/g, "\\'")}')"
+               style="padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-color);"
+               onmouseover="this.style.background='var(--bg-glass-hover)'"
+               onmouseout="this.style.background='transparent'">
+            <div style="font-weight: 500; color: var(--text-primary);">${t.name}</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">${t.email}</div>
+          </div>
+        `).join('');
+      }
+
+      teammateDropdown.style.display = 'block';
+    });
+
+    teammateSearch.addEventListener('blur', () => {
+      setTimeout(() => {
+        teammateDropdown.style.display = 'none';
+      }, 200);
+    });
+
+    function selectTeammate(id, email, name) {
+      document.getElementById('user-teammate-id').value = id;
+      document.getElementById('user-email').value = email;
+      document.getElementById('user-name').value = name;
+      teammateSearch.value = `${name} (${email})`;
+      teammateDropdown.style.display = 'none';
+
+      showToast(`Selected: ${name}`, 'success');
+    }
+
+    // Initial load
+    loadInboxes();
+    loadUsers();
+    loadFrontChannels();
+    loadFrontTeammates();
+  </script>
+</body>
+
+</html>

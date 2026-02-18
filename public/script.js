@@ -246,13 +246,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderEmployeeTable(departmentId = null, selectedDepartmentName, apiResponses = null, isIndividual = null) {
-    console.log('renderEmployeeTable called:', {
-      departmentId,
-      selectedDepartmentName,
-      apiResponsesCount: apiResponses ? apiResponses.length : 0,
-      isIndividual
-    });
-
     const contentContainer = document.getElementById("employee-content");
     const departmentEmployees = employees.filter((emp) => emp.departmentId === departmentId);
     const department = departments.find((dept) => dept.id === departmentId);
@@ -306,18 +299,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     if (apiResponses) {
-      console.log('Processing apiResponses:', apiResponses.length, 'records');
-      console.log('First result full structure:', JSON.stringify(apiResponses[0], null, 2));
-      let rowsAdded = 0;
-      apiResponses.forEach((result, idx) => {
-        console.log(`Row ${idx}:`, {
-          hasApiData: !!result.apiData,
-          hasMetrics: result.apiData ? !!result.apiData.metrics : false,
-          record: result.record?.name,
-          error: result.error || null
-        });
+      apiResponses.forEach((result) => {
         if (result.apiData && result.apiData.metrics) {
-          rowsAdded++;
           const totalSeconds = Math.round(result.apiData.metrics[2].value);
           const hours = Math.floor(totalSeconds / 3600);
           const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -335,7 +318,6 @@ document.addEventListener("DOMContentLoaded", () => {
           `;
         }
       });
-      console.log('Total rows added:', rowsAdded);
 
       // Initialize DataTable after content is rendered
       setTimeout(() => {
@@ -455,14 +437,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const cachedData = await tryGetCachedData(selectedDepartmentName, selectedRangeLabel);
 
       if (cachedData && cachedData.apiResponses) {
-        console.log('Cache hit! Using cached data.');
-        console.log('Cache data details:', {
-          department: cachedData.department,
-          totalRecords: cachedData.totalRecords,
-          apiResponsesCount: cachedData.apiResponses.length,
-          selectedDepartmentId,
-          selectedDepartmentName
-        });
         showCacheIndicator(cachedData.cacheAge);
         renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, cachedData.apiResponses);
         return;

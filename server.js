@@ -90,7 +90,7 @@ if (process.env.AZURE_CLIENT_ID && process.env.AZURE_TENANT_ID) {
     cookieEncryptionKeys: [
       { key: process.env.SESSION_SECRET.substring(0, 32), iv: process.env.SESSION_SECRET.substring(32, 44) || '123456789012' }
     ],
-    cookieSameSite: true,
+    cookieSameSite: false, // Must be false for OAuth redirects to work
     nonceLifetime: 600, // 10 minutes
     nonceMaxAmount: 5
   };

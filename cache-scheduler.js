@@ -256,10 +256,28 @@ function readFromCache(departmentName, rangeName) {
 }
 
 /**
+ * Verifica si el cache tiene errores (datos corruptos)
+ */
+function hasCacheErrors(cachedData) {
+  if (!cachedData || !cachedData.apiResponses) return true;
+
+  // Check if any response has an error instead of apiData
+  return cachedData.apiResponses.some(response => {
+    return response.error || !response.apiData || !response.apiData.metrics;
+  });
+}
+
+/**
  * Verifica si necesita actualizar según la frecuencia
  */
 function needsUpdate(rangeName, cachedData) {
   if (!cachedData) return true;
+
+  // Force update if cache has errors
+  if (hasCacheErrors(cachedData)) {
+    console.log(`  ⚠️  Cache has errors, forcing regeneration`);
+    return true;
+  }
 
   const generatedAt = new Date(cachedData.generatedAt);
   const now = new Date();

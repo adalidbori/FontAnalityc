@@ -36,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedDepartmentName = null;
   let currentStartDate = moment();
   let currentEndDate = moment();
-  let selectedOptions = [];
+  let isIndividualMode = false;
   let totalStats = { received: 0, sent: 0, avgTime: 0 };
 
   // Initialize - load departments first
@@ -66,9 +66,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // Now render
+      renderIndividualMenuItem();
       renderDepartmentMenu();
       renderEmployeeTable(selectedDepartmentId, selectedDepartmentName);
       updatePageTitle(selectedDepartmentName);
+      initializeSearchButton();
     } catch (error) {
       console.error('Error loading departments:', error);
       // Show error in sidebar
@@ -83,37 +85,47 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function initializeSearchButton() {
     const searchButton = document.querySelector('.searchButton');
-    const selectElement = document.querySelector('.form-select');
+    const customRangeModal = new bootstrap.Modal(document.getElementById('customRangeModal'));
+    const confirmBtn = document.getElementById('customRangeConfirm');
 
-    searchButton.addEventListener("click", () => {
-      // Add button loading state
+    function executeSearch() {
       searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
       searchButton.disabled = true;
 
-      selectedOptions = Array.from(selectElement.selectedOptions).map(opt => ({
-        id: opt.value,
-        name: opt.innerText,
-        email: opt.dataset.email,
-      }));
-
       const contentContainer = document.getElementById("employee-content");
 
-      if (selectedOptions.length === 0) {
+      if (isIndividualMode) {
+        renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, null, true);
+        showLoadingState(contentContainer);
+        actualizarDatosIndividuales().finally(() => {
+          resetSearchButton(searchButton);
+        });
+      } else {
         renderEmployeeTable(selectedDepartmentId, selectedDepartmentName);
         showLoadingState(contentContainer);
         actualizarDatos().finally(() => {
           resetSearchButton(searchButton);
         });
-      } else {
-        renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, null, true);
-        showLoadingState(contentContainer);
-        actualizarDatosIndividuales(selectedOptions).finally(() => {
-          resetSearchButton(searchButton);
-          Array.from(selectElement.options).forEach(option => {
-            option.selected = false;
-          });
-        });
       }
+    }
+
+    // When user confirms custom range modal
+    confirmBtn.addEventListener("click", () => {
+      customRangeModal.hide();
+      executeSearch();
+    });
+
+    searchButton.addEventListener("click", () => {
+      // Check if this is a non-cached (custom) range
+      const isCachedRange = selectedRangeLabel && CACHE_RANGE_MAP[selectedRangeLabel];
+
+      if (!isCachedRange) {
+        // Show warning modal
+        customRangeModal.show();
+        return;
+      }
+
+      executeSearch();
     });
   }
 
@@ -148,6 +160,40 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function renderIndividualMenuItem() {
+    const container = document.getElementById("individual-menu");
+    container.innerHTML = "";
+
+    const navItem = document.createElement("div");
+    navItem.className = "nav-item animate-slide-in";
+
+    const button = document.createElement("button");
+    button.className = "nav-link";
+    button.innerHTML = `
+      <span class="nav-icon"><i class="fas fa-user"></i></span>
+      <span>Individual Users</span>
+    `;
+
+    button.addEventListener("click", () => {
+      isIndividualMode = true;
+      selectedDepartmentId = null;
+      selectedDepartmentName = null;
+
+      // Remove active from department buttons
+      document.querySelectorAll("#department-menu .nav-link").forEach((el) => {
+        el.classList.remove("active");
+      });
+      // Set this as active
+      button.classList.add("active");
+
+      updatePageTitle('Individual', true);
+      renderEmployeeTable(null, null);
+    });
+
+    navItem.appendChild(button);
+    container.appendChild(navItem);
+  }
+
   function renderDepartmentMenu() {
     const menuContainer = document.getElementById("department-menu");
     menuContainer.innerHTML = "";
@@ -165,10 +211,12 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
 
       button.addEventListener("click", () => {
+        isIndividualMode = false;
         selectedDepartmentId = department.id;
         selectedDepartmentName = department.name;
 
-        document.querySelectorAll("#department-menu .nav-link").forEach((el) => {
+        // Remove active from all nav links (including individual)
+        document.querySelectorAll("#department-menu .nav-link, #individual-menu .nav-link").forEach((el) => {
           el.classList.remove("active");
         });
         button.classList.add("active");
@@ -180,15 +228,6 @@ document.addEventListener("DOMContentLoaded", () => {
       navItem.appendChild(button);
       menuContainer.appendChild(navItem);
     });
-
-    // Load individual users
-    obtenerRegistrosindividuales()
-      .then(users => {
-        populateDropdown(users);
-      })
-      .catch(error => {
-        console.error('Error al obtener registros individuales:', error);
-      });
   }
 
   function renderStatsCards(data) {
@@ -501,22 +540,42 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function actualizarDatosIndividuales(inboxes) {
+  async function actualizarDatosIndividuales() {
+    // Try cache first for predefined ranges
+    if (selectedRangeLabel && CACHE_RANGE_MAP[selectedRangeLabel]) {
+      console.log('Trying to use cache for individuals:', selectedRangeLabel);
+      const cachedData = await tryGetCachedData('individuals', selectedRangeLabel);
+
+      if (cachedData && cachedData.apiResponses) {
+        showCacheIndicator(cachedData.cacheAge);
+        renderEmployeeTable(null, null, cachedData.apiResponses, true);
+        return;
+      }
+      console.log('Cache miss for individuals. Fetching from API...');
+    }
+
+    // If no cache, call API for all individual users
     const startTimestampSeconds = currentStartDate.unix();
     const endUTC5 = moment.tz(currentEndDate.format('YYYY-MM-DD'), 'America/New_York');
     const endTimestampSeconds = endUTC5.unix();
 
     try {
+      // Fetch all individual users from DB
+      const respuesta = await fetch('/api/analytics/individuals');
+      if (!respuesta.ok) throw new Error('Failed to load individual users');
+      const inboxes = await respuesta.json();
+
       const data = await callApiIndividuals(startTimestampSeconds, endTimestampSeconds, inboxes);
       const apiResponses = data.apiResponses || [];
-      renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, apiResponses, true);
+      hideCacheIndicator();
+      renderEmployeeTable(null, null, apiResponses, true);
     } catch (error) {
       console.error('Error al procesar datos:', error);
-      renderEmployeeTable(selectedDepartmentId, selectedDepartmentName, [{
+      renderEmployeeTable(null, null, [{
         recordIndex: 1,
         record: { name: 'Error', email: '', position: '' },
         error: error.message
-      }]);
+      }], true);
     }
   }
 
@@ -590,67 +649,5 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function obtenerRegistrosindividuales() {
-    try {
-      // Usar nuevo endpoint de la API (PostgreSQL)
-      const respuesta = await fetch('/api/analytics/individuals');
-      if (!respuesta.ok) {
-        throw new Error(`Error al obtener datos: ${respuesta.status} ${respuesta.statusText}`);
-      }
-      const datos = await respuesta.json();
-      return datos;
-    } catch (error) {
-      console.error('Error al obtener registros:', error);
-      return [];
-    }
-  }
-
-  function populateDropdown(users) {
-    const userDropdownWrapper = document.getElementById("user-dropdown-wrapper");
-
-    // Create search input
-    const searchInput = document.createElement("input");
-    searchInput.type = "text";
-    searchInput.placeholder = "Search users...";
-    searchInput.className = "user-search-input";
-    searchInput.style.cssText = `
-      width: 100%;
-      padding: 10px 12px;
-      background: transparent;
-      border: none;
-      border-bottom: 1px solid var(--border-color);
-      color: var(--text-primary);
-      font-size: 0.85rem;
-      outline: none;
-    `;
-
-    // Create select element
-    const selectElement = document.createElement("select");
-    selectElement.setAttribute("multiple", "multiple");
-    selectElement.className = "form-select";
-
-    users.forEach((user) => {
-      const option = document.createElement("option");
-      option.value = user.id;
-      option.innerText = user.name;
-      option.dataset.email = user.email;
-      selectElement.appendChild(option);
-    });
-
-    // Filter functionality
-    searchInput.addEventListener("input", (e) => {
-      const searchTerm = e.target.value.toLowerCase();
-      Array.from(selectElement.options).forEach(option => {
-        const matches = option.text.toLowerCase().includes(searchTerm);
-        option.style.display = matches ? '' : 'none';
-      });
-    });
-
-    userDropdownWrapper.innerHTML = '';
-    userDropdownWrapper.appendChild(searchInput);
-    userDropdownWrapper.appendChild(selectElement);
-
-    initializeSearchButton();
-  }
 
 });

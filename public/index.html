@@ -47,25 +47,17 @@
 
         <!-- Navigation -->
         <nav class="sidebar-nav">
+          <div id="individual-menu">
+            <!-- Individual User button rendered by JS -->
+          </div>
           <div class="nav-section-title">Departments</div>
           <div id="department-menu">
             <!-- Los departamentos se cargarán aquí mediante JavaScript -->
           </div>
         </nav>
 
-        <!-- User Selection -->
-        <div class="sidebar-users">
-          <div class="users-title">
-            <i class="fas fa-user-group"></i>
-            Individual Users
-          </div>
-          <div id="user-dropdown-wrapper" class="user-select-wrapper">
-            <!-- El select de usuarios se cargará aquí -->
-          </div>
-        </div>
-
-        <!-- Admin Link -->
-        <div style="padding: 16px 12px; border-top: 1px solid var(--border-color); margin-top: auto;">
+        <!-- Admin Link (hidden by default, shown for admins by JS) -->
+        <div id="admin-link" style="padding: 16px 12px; border-top: 1px solid var(--border-color); margin-top: auto; display: none;">
           <a href="/admin.html" class="nav-link" style="text-decoration: none;">
             <span class="nav-icon"><i class="fas fa-cog"></i></span>
             <span>Admin Panel</span>
@@ -119,23 +111,23 @@
     </div>
   </div>
 
-  <!-- Modal -->
-  <div id="myModal" class="modal" tabindex="-1">
+  <!-- Custom Range Warning Modal -->
+  <div id="customRangeModal" class="modal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-body text-center">
-          <div style="font-size: 3rem; margin-bottom: 16px; color: var(--accent-primary);">
-            <i class="fas fa-calendar-check"></i>
+          <div style="font-size: 3rem; margin-bottom: 16px; color: var(--warning-color, #f59e0b);">
+            <i class="fas fa-clock"></i>
           </div>
-          <h4>Did you already select the date range?</h4>
-          <p style="color: var(--text-secondary); margin-top: 8px;">Please make sure you've selected the correct date range before proceeding.</p>
+          <h4>Custom Date Range</h4>
+          <p style="color: var(--text-secondary); margin-top: 8px;">This query may take longer than expected since the data is not pre-cached. Do you want to continue?</p>
         </div>
         <div class="modal-footer justify-content-center">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-            <i class="fas fa-times"></i> Not Yet
+            <i class="fas fa-times"></i> Cancel
           </button>
-          <button type="button" class="btn btn-primary modalYes">
-            <i class="fas fa-check"></i> Yes, Search
+          <button type="button" class="btn btn-primary" id="customRangeConfirm">
+            <i class="fas fa-check"></i> Yes, Continue
           </button>
         </div>
       </div>
@@ -162,9 +154,13 @@
   <!-- Custom JavaScript -->
   <script src="script.js?v=6"></script>
   <script>
-    // Render user header on page load
-    document.addEventListener('DOMContentLoaded', () => {
-      Auth.renderUserHeader();
+    // Render user header on page load and show admin link if admin
+    document.addEventListener('DOMContentLoaded', async () => {
+      await Auth.renderUserHeader();
+      const user = Auth.currentUser;
+      if (user && user.role === 'admin') {
+        document.getElementById('admin-link').style.display = '';
+      }
     });
   </script>
 </body>

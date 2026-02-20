@@ -11,6 +11,7 @@ require('dotenv').config();
 
 const ENDPOINT = process.env.ENDPOINT;
 const FRONT_API_KEY = process.env.FRONT_API_KEY;
+const FRONT_API_KEY_INDIVIDUALS = process.env.FRONT_API_KEY_INDIVIDUALS;
 const db = require('./db');
 
 // Rangos predefinidos
@@ -171,6 +172,19 @@ async function getUsersByDepartment(departmentName) {
 }
 
 /**
+ * Obtiene usuarios individuales desde la base de datos
+ */
+async function getIndividualUsersFromDB() {
+  try {
+    const users = await db.getIndividualUsers();
+    return users;
+  } catch (error) {
+    console.error('Error getting individual users from database:', error.message);
+    return [];
+  }
+}
+
+/**
  * Llama a la API de Front con reintentos
  */
 async function callFrontApi(requestBody, recordIndex) {
@@ -185,6 +199,58 @@ async function callFrontApi(requestBody, recordIndex) {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'Authorization': FRONT_API_KEY,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.status === 429) {
+        const errorData = await response.json();
+        const waitTime = parseInt(errorData._error?.message?.match(/\d+/)?.[0] || 3000);
+        console.log(`  Rate limited. Waiting ${waitTime}ms...`);
+        await delay(waitTime + 500);
+        retries++;
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.status === 'done') {
+        return { apiData: data };
+      }
+
+      // Status pending/running, retry
+      retries++;
+      if (retries < maxRetries) {
+        await delay(2500);
+      }
+    } catch (error) {
+      console.error(`  Error for record ${recordIndex}:`, error.message);
+      return { error: error.message };
+    }
+  }
+
+  return { error: 'Max retries reached' };
+}
+
+/**
+ * Llama a la API de Front con reintentos (usando API key de individuales)
+ */
+async function callFrontApiIndividuals(requestBody, recordIndex) {
+  const maxRetries = 10;
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': FRONT_API_KEY_INDIVIDUALS,
         },
         body: JSON.stringify(requestBody),
       });
@@ -267,6 +333,60 @@ async function precalculateDepartment(departmentName, rangeName) {
 
   return {
     department: departmentName,
+    range: rangeName,
+    rangeLabel: range.label,
+    timestampStart: range.start,
+    timestampEnd: range.end,
+    generatedAt: new Date().toISOString(),
+    totalRecords: users.length,
+    apiResponses,
+  };
+}
+
+/**
+ * Pre-calcula métricas para todos los usuarios individuales en un rango
+ */
+async function precalculateIndividuals(rangeName) {
+  const range = getDateRange(rangeName);
+  const users = await getIndividualUsersFromDB();
+
+  if (users.length === 0) {
+    console.log(`  No individual users found`);
+    return null;
+  }
+
+  console.log(`  Processing ${users.length} individual users - ${range.label}`);
+
+  const apiResponses = [];
+
+  for (const [index, user] of users.entries()) {
+    console.log(`    [${index + 1}/${users.length}] ${user.name}`);
+
+    const requestBody = {
+      filters: {
+        teammate_ids: [user.id],
+      },
+      start: range.start,
+      end: range.end,
+      timezone: 'America/New_York',
+      metrics: ['num_messages_received', 'num_messages_sent', 'avg_response_time'],
+    };
+
+    const result = await callFrontApiIndividuals(requestBody, index + 1);
+    apiResponses.push({
+      recordIndex: index + 1,
+      record: user,
+      ...result,
+    });
+
+    // Delay entre llamadas
+    if (index < users.length - 1) {
+      await delay(2200);
+    }
+  }
+
+  return {
+    department: 'individuals',
     range: rangeName,
     rangeLabel: range.label,
     timestampStart: range.start,
@@ -390,6 +510,34 @@ async function runPrecalculation(forceAll = false) {
       // Delay entre rangos
       await delay(3000);
     }
+  }
+
+  // Pre-calculate individual users
+  console.log(`\n👤 Individual Users`);
+  console.log('----------------------------------------');
+
+  for (const rangeName of RANGES) {
+    const cached = readFromCache('individuals', rangeName);
+
+    if (!forceAll && !needsUpdate(rangeName, cached)) {
+      console.log(`  ⏭️  ${rangeName}: Using cached data (generated ${cached.generatedAt})`);
+      continue;
+    }
+
+    console.log(`  🔄 ${rangeName}: Fetching fresh data...`);
+
+    try {
+      const data = await precalculateIndividuals(rangeName);
+      if (data) {
+        saveToCache('individuals', rangeName, data);
+        console.log(`  ✅ ${rangeName}: Done`);
+      }
+    } catch (error) {
+      console.error(`  ❌ ${rangeName}: Error - ${error.message}`);
+    }
+
+    // Delay entre rangos
+    await delay(3000);
   }
 
   console.log('\n========================================');

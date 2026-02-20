@@ -1,12 +1,8 @@
 /**
  * Cache Scheduler - Pre-calcula métricas para rangos predefinidos
  *
- * Rangos y frecuencia:
- * - Yesterday: diario (a las 6 AM)
- * - This Week: diario (a las 6 AM)
- * - Last Week: semanal (lunes a las 6 AM)
- * - This Month: diario (a las 6 AM)
- * - Last Month: mensual (día 1 a las 6 AM)
+ * Todos los rangos se actualizan diariamente a las 6 AM ET:
+ * - Yesterday, This Week, Last Week, This Month, Last Month
  */
 
 const fs = require('fs');
@@ -31,65 +27,114 @@ if (!fs.existsSync(CACHE_DIR)) {
 // Utility function para delay
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Timezone para cálculo de fechas (debe coincidir con el frontend y la API de Front)
+const TIMEZONE = 'America/New_York';
+
 /**
- * Calcula timestamps para cada rango
+ * Obtiene los componentes de fecha actuales en America/New_York
+ */
+function getNowInTimezone() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+
+  const year = parseInt(parts.find(p => p.type === 'year').value);
+  const month = parseInt(parts.find(p => p.type === 'month').value) - 1;
+  const day = parseInt(parts.find(p => p.type === 'day').value);
+
+  // Calcular día de la semana en ET
+  const dayOfWeek = parseInt(new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE,
+    weekday: 'short',
+  }).format(now).replace(/\./g, ''), 10) || ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(
+    new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'short' }).format(now)
+  );
+
+  return { year, month, day, dayOfWeek };
+}
+
+/**
+ * Convierte fecha/hora en America/New_York a Unix timestamp (segundos)
+ */
+function toUnixInTimezone(year, month, day, hours = 0, minutes = 0, seconds = 0) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const dateStr = `${year}-${pad(month + 1)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+
+  // Parsear como UTC primero
+  const utcDate = new Date(dateStr + 'Z');
+
+  // Calcular el offset entre UTC y America/New_York
+  const utcStr = utcDate.toLocaleString('en-US', { timeZone: 'UTC' });
+  const tzStr = utcDate.toLocaleString('en-US', { timeZone: TIMEZONE });
+  const offsetMs = new Date(utcStr).getTime() - new Date(tzStr).getTime();
+
+  // Ajustar para obtener el momento exacto en UTC que corresponde a esa hora en ET
+  return Math.floor((utcDate.getTime() + offsetMs) / 1000);
+}
+
+/**
+ * Calcula timestamps para cada rango (en America/New_York)
  */
 function getDateRange(rangeName) {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const { year, month, day } = getNowInTimezone();
 
   switch (rangeName) {
     case 'yesterday': {
-      const yesterday = new Date(todayStart);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayEnd = new Date(yesterday);
-      yesterdayEnd.setHours(23, 59, 59, 999);
+      const d = new Date(Date.UTC(year, month, day - 1));
+      const y = d.getUTCFullYear(), m = d.getUTCMonth(), dd = d.getUTCDate();
       return {
-        start: Math.floor(yesterday.getTime() / 1000),
-        end: Math.floor(yesterdayEnd.getTime() / 1000),
+        start: toUnixInTimezone(y, m, dd, 0, 0, 0),
+        end: toUnixInTimezone(y, m, dd, 23, 59, 59),
         label: 'Yesterday'
       };
     }
 
     case 'thisWeek': {
-      const weekStart = new Date(todayStart);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Domingo
+      // Calcular día de la semana en ET (0=Sun)
+      const nowET = new Date();
+      const dowStr = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'short' }).format(nowET);
+      const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(dowStr);
+      const weekStart = new Date(Date.UTC(year, month, day - dow));
       return {
-        start: Math.floor(weekStart.getTime() / 1000),
-        end: Math.floor(now.getTime() / 1000),
+        start: toUnixInTimezone(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate(), 0, 0, 0),
+        end: toUnixInTimezone(year, month, day, 0, 0, 0),
         label: 'This Week'
       };
     }
 
     case 'lastWeek': {
-      const lastWeekEnd = new Date(todayStart);
-      lastWeekEnd.setDate(lastWeekEnd.getDate() - lastWeekEnd.getDay() - 1); // Sábado pasado
-      lastWeekEnd.setHours(23, 59, 59, 999);
-      const lastWeekStart = new Date(lastWeekEnd);
-      lastWeekStart.setDate(lastWeekStart.getDate() - 6); // Domingo pasado
-      lastWeekStart.setHours(0, 0, 0, 0);
+      const nowET = new Date();
+      const dowStr = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'short' }).format(nowET);
+      const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(dowStr);
+      // Sábado pasado = hoy - dow - 1
+      const satEnd = new Date(Date.UTC(year, month, day - dow - 1));
+      // Domingo pasado = sábado - 6
+      const sunStart = new Date(Date.UTC(satEnd.getUTCFullYear(), satEnd.getUTCMonth(), satEnd.getUTCDate() - 6));
       return {
-        start: Math.floor(lastWeekStart.getTime() / 1000),
-        end: Math.floor(lastWeekEnd.getTime() / 1000),
+        start: toUnixInTimezone(sunStart.getUTCFullYear(), sunStart.getUTCMonth(), sunStart.getUTCDate(), 0, 0, 0),
+        end: toUnixInTimezone(satEnd.getUTCFullYear(), satEnd.getUTCMonth(), satEnd.getUTCDate(), 23, 59, 59),
         label: 'Last Week'
       };
     }
 
     case 'thisMonth': {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       return {
-        start: Math.floor(monthStart.getTime() / 1000),
-        end: Math.floor(now.getTime() / 1000),
+        start: toUnixInTimezone(year, month, 1, 0, 0, 0),
+        end: toUnixInTimezone(year, month, day, 0, 0, 0),
         label: 'This Month'
       };
     }
 
     case 'lastMonth': {
-      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      const lastMonthDate = new Date(Date.UTC(year, month - 1, 1));
+      const lastDayOfLastMonth = new Date(Date.UTC(year, month, 0));
       return {
-        start: Math.floor(lastMonthStart.getTime() / 1000),
-        end: Math.floor(lastMonthEnd.getTime() / 1000),
+        start: toUnixInTimezone(lastMonthDate.getUTCFullYear(), lastMonthDate.getUTCMonth(), 1, 0, 0, 0),
+        end: toUnixInTimezone(lastDayOfLastMonth.getUTCFullYear(), lastDayOfLastMonth.getUTCMonth(), lastDayOfLastMonth.getUTCDate(), 23, 59, 59),
         label: 'Last Month'
       };
     }
@@ -279,36 +324,24 @@ function needsUpdate(rangeName, cachedData) {
     return true;
   }
 
+  // Usar fecha/hora en America/New_York para determinar si necesita actualizar
+  const { year, month, day } = getNowInTimezone();
+  const todayStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+
+  // Fecha de generación en ET
   const generatedAt = new Date(cachedData.generatedAt);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const generatedDate = new Date(generatedAt.getFullYear(), generatedAt.getMonth(), generatedAt.getDate());
+  const genParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(generatedAt);
+  const genYear = parseInt(genParts.find(p => p.type === 'year').value);
+  const genMonth = parseInt(genParts.find(p => p.type === 'month').value);
+  const genDay = parseInt(genParts.find(p => p.type === 'day').value);
+  const genStr = `${genYear}-${String(genMonth).padStart(2,'0')}-${String(genDay).padStart(2,'0')}`;
 
-  switch (rangeName) {
-    case 'yesterday':
-    case 'thisWeek':
-    case 'thisMonth':
-      // Actualizar si no se generó hoy
-      return generatedDate < today;
+  const generatedToday = genStr === todayStr;
 
-    case 'lastWeek':
-      // Actualizar si es lunes y no se generó hoy
-      if (now.getDay() === 1 && generatedDate < today) return true;
-      // O si nunca se generó esta semana
-      const thisWeekStart = new Date(today);
-      thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
-      return generatedDate < thisWeekStart;
-
-    case 'lastMonth':
-      // Actualizar si es día 1 y no se generó hoy
-      if (now.getDate() === 1 && generatedDate < today) return true;
-      // O si nunca se generó este mes
-      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      return generatedDate < thisMonthStart;
-
-    default:
-      return true;
-  }
+  // Todos los rangos se actualizan diariamente: si no se generó hoy, actualizar
+  return !generatedToday;
 }
 
 /**
@@ -377,10 +410,17 @@ function scheduleJobs() {
 
   // Luego verificar cada hora
   setInterval(() => {
+    // Usar hora en America/New_York (no UTC del servidor)
     const now = new Date();
-    // Ejecutar a las 6 AM
-    if (now.getHours() === 6 && now.getMinutes() < 5) {
-      console.log('Scheduled run triggered (6 AM)');
+    const hourET = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: TIMEZONE, hour: '2-digit', hour12: false
+    }).format(now));
+    const minuteET = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: TIMEZONE, minute: '2-digit'
+    }).format(now));
+    // Ejecutar a las 6 AM ET
+    if (hourET === 6 && minuteET < 5) {
+      console.log('Scheduled run triggered (6 AM ET)');
       runPrecalculation();
     }
   }, checkInterval);

@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Front Analytics - Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
   <!-- Google Fonts - Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -154,11 +155,11 @@
   <!-- Custom JavaScript -->
   <script src="script.js?v=6"></script>
   <script>
-    // Render user header on page load and show admin link if admin
+    // Render user header on page load and show admin link if admin/super_admin
     document.addEventListener('DOMContentLoaded', async () => {
       await Auth.renderUserHeader();
       const user = Auth.currentUser;
-      if (user && user.role === 'admin') {
+      if (user && (user.role === 'admin' || user.role === 'super_admin' || user.isSuperAdmin)) {
         document.getElementById('admin-link').style.display = '';
       }
     });

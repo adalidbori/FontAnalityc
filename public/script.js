@@ -39,14 +39,103 @@ document.addEventListener("DOMContentLoaded", () => {
   let isIndividualMode = false;
   let totalStats = { received: 0, sent: 0, avgTime: 0 };
 
-  // Initialize - load departments first
-  loadDepartments();
+  // Tenant context for super admin
+  let activeTenantId = null;
+
+  // Initialize
+  initApp();
   initializeDatePicker();
+
+  async function initApp() {
+    // Wait for auth to be ready
+    const user = await Auth.getCurrentUser();
+    if (!user) return;
+
+    // If super admin, show tenant selector and wait for selection
+    if (user.isSuperAdmin || user.role === 'super_admin') {
+      await showTenantSelector();
+    } else {
+      // Regular user/admin - use their tenant
+      activeTenantId = user.tenantId;
+      loadDepartments();
+    }
+  }
+
+  // Build tenant query param for API calls (super admin only)
+  function tenantParam(prefix = '?') {
+    if (activeTenantId) {
+      return `${prefix}tenantId=${activeTenantId}`;
+    }
+    return '';
+  }
+
+  // Build tenant query param for appending to existing query string
+  function tenantParamAppend() {
+    if (activeTenantId) {
+      return `&tenantId=${activeTenantId}`;
+    }
+    return '';
+  }
+
+  async function showTenantSelector() {
+    try {
+      const response = await fetch('/api/tenants');
+      if (!response.ok) throw new Error('Failed to load tenants');
+      const tenants = await response.json();
+
+      if (tenants.length === 0) {
+        document.getElementById('department-menu').innerHTML = `
+          <div style="padding: 16px; color: var(--text-muted); text-align: center;">
+            No tenants found. Create one from the Admin Panel.
+          </div>
+        `;
+        return;
+      }
+
+      // Render tenant selector above departments
+      const sidebarNav = document.querySelector('.sidebar-nav');
+      const selectorDiv = document.createElement('div');
+      selectorDiv.style.cssText = 'padding: 8px 12px; border-bottom: 1px solid var(--border-color);';
+      selectorDiv.innerHTML = `
+        <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; font-weight: 600;">Tenant</div>
+        <select id="tenant-selector" style="
+          width: 100%;
+          padding: 8px 10px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          color: var(--text-primary);
+          font-size: 0.85rem;
+        ">
+          ${tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+        </select>
+      `;
+      sidebarNav.parentNode.insertBefore(selectorDiv, sidebarNav);
+
+      // Set default tenant and load
+      activeTenantId = tenants[0].id;
+      loadDepartments();
+
+      // Handle tenant change
+      document.getElementById('tenant-selector').addEventListener('change', (e) => {
+        activeTenantId = parseInt(e.target.value);
+        // Reset state
+        selectedDepartmentId = null;
+        selectedDepartmentName = null;
+        isIndividualMode = false;
+        document.getElementById('stats-container').innerHTML = '';
+        document.getElementById('employee-content').innerHTML = '';
+        loadDepartments();
+      });
+    } catch (error) {
+      console.error('Error loading tenants:', error);
+    }
+  }
 
   // Load departments from database
   async function loadDepartments() {
     try {
-      const response = await fetch('/api/inboxes');
+      const response = await fetch(`/api/inboxes${tenantParam()}`);
       if (!response.ok) throw new Error('Failed to load inboxes');
 
       const inboxes = await response.json();
@@ -452,7 +541,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        `/getCachedData?department=${encodeURIComponent(departmentName)}&range=${cacheRange}`
+        `/getCachedData?department=${encodeURIComponent(departmentName)}&range=${cacheRange}${tenantParamAppend()}`
       );
 
       if (!response.ok) {
@@ -561,7 +650,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       // Fetch all individual users from DB
-      const respuesta = await fetch('/api/analytics/individuals');
+      const respuesta = await fetch(`/api/analytics/individuals${tenantParam()}`);
       if (!respuesta.ok) throw new Error('Failed to load individual users');
       const inboxes = await respuesta.json();
 
@@ -585,7 +674,8 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error('Faltan datos requeridos: timestampStart, timestampEnd o registros');
       }
 
-      const response = await fetch('/getData', {
+      const url = `/getData${tenantParam()}`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -612,7 +702,8 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error('Faltan datos requeridos: timestampStart, timestampEnd o registros');
       }
 
-      const response = await fetch('/getDataIndividuals', {
+      const url = `/getDataIndividuals${tenantParam()}`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -637,7 +728,7 @@ document.addEventListener("DOMContentLoaded", () => {
     nombreInbox = !nombreInbox ? 'Secto' : nombreInbox;
     try {
       // Usar nuevo endpoint de la API (PostgreSQL)
-      const respuesta = await fetch(`/api/analytics/inbox/${encodeURIComponent(nombreInbox)}`);
+      const respuesta = await fetch(`/api/analytics/inbox/${encodeURIComponent(nombreInbox)}${tenantParam()}`);
       if (!respuesta.ok) {
         throw new Error(`Error al obtener datos: ${respuesta.status} ${respuesta.statusText}`);
       }

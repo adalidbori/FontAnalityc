@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Panel - Front Analytics</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -336,6 +337,11 @@
       color: var(--accent-primary);
     }
 
+    .badge-super {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+    }
+
     /* Assignment panel */
     .assignment-container {
       display: grid;
@@ -430,6 +436,31 @@
     .back-link:hover {
       color: var(--accent-primary);
     }
+
+    /* API Keys form */
+    .api-keys-form {
+      max-width: 600px;
+    }
+
+    .api-keys-form .form-group {
+      margin-bottom: 20px;
+    }
+
+    .api-key-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+
+    .api-key-status.configured {
+      color: var(--success);
+    }
+
+    .api-key-status.not-configured {
+      color: var(--danger);
+    }
   </style>
 </head>
 
@@ -453,7 +484,25 @@
         </div>
 
         <nav class="sidebar-nav">
+          <!-- Super Admin section (hidden by default) -->
+          <div id="super-admin-nav" style="display: none;">
+            <div class="nav-section-title">Super Admin</div>
+            <div class="nav-item">
+              <button class="nav-link" data-tab="tenants">
+                <span class="nav-icon"><i class="fas fa-building"></i></span>
+                <span>Tenants</span>
+              </button>
+            </div>
+          </div>
+
           <div class="nav-section-title">Management</div>
+          <!-- API Keys tab (for tenant admins) -->
+          <div id="api-keys-nav" class="nav-item" style="display: none;">
+            <button class="nav-link" data-tab="api-keys">
+              <span class="nav-icon"><i class="fas fa-key"></i></span>
+              <span>API Keys</span>
+            </button>
+          </div>
           <div class="nav-item">
             <button class="nav-link active" data-tab="inboxes">
               <span class="nav-icon"><i class="fas fa-inbox"></i></span>
@@ -505,6 +554,77 @@
           </h1>
           <p class="page-subtitle">Manage inboxes, users, and their assignments</p>
         </header>
+
+        <!-- Tenants Panel (Super Admin only) -->
+        <div id="panel-tenants" class="admin-panel">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-building"></i> Tenants</h3>
+              <button class="btn-add" onclick="openTenantModal()">
+                <i class="fas fa-plus"></i> Add Tenant
+              </button>
+            </div>
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Slug</th>
+                  <th>Domain</th>
+                  <th>API Keys</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tenants-table">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- API Keys Panel (Tenant Admin) -->
+        <div id="panel-api-keys" class="admin-panel">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-key"></i> Front API Keys</h3>
+            </div>
+            <div class="panel-content">
+              <div id="api-keys-status" style="margin-bottom: 20px;">
+                <!-- Status will be loaded here -->
+              </div>
+              <form id="api-keys-form" class="api-keys-form" onsubmit="saveApiKeys(event)">
+                <div class="form-group">
+                  <label class="form-label">Front API Key (Shared Inboxes) *</label>
+                  <input type="text" id="api-key-shared" class="form-input"
+                         placeholder="Bearer xxxxx">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Front API Key (Individual Users)</label>
+                  <input type="text" id="api-key-individuals" class="form-input"
+                         placeholder="Bearer xxxxx">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Front API Endpoint</label>
+                  <input type="text" id="api-endpoint" class="form-input"
+                         placeholder="https://api2.frontapp.com/analytics/reports"
+                         value="https://api2.frontapp.com/analytics/reports">
+                </div>
+                <button type="submit" class="btn-add" style="margin-top: 8px;">
+                  <i class="fas fa-save"></i> Save API Keys
+                </button>
+              </form>
+              <div style="padding: 20px; background: var(--bg-tertiary); border-radius: var(--radius-md); margin-top: 20px;">
+                <h4 style="margin-bottom: 12px; color: var(--text-primary);"><i class="fas fa-info-circle"></i> About API Keys</h4>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
+                  These API keys are used to fetch analytics data from Front.<br>
+                  <strong>Shared Inboxes Key</strong>: Used for department/inbox analytics (scope: shared:*).<br>
+                  <strong>Individual Users Key</strong>: Used for individual user analytics (scope: private:*).<br>
+                  <strong>Endpoint</strong>: The Front Analytics API URL (usually doesn't need to change).
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Inboxes Panel -->
         <div id="panel-inboxes" class="admin-panel active">
@@ -606,6 +726,7 @@
                   <th>Name</th>
                   <th>Email</th>
                   <th>Role</th>
+                  <th id="tenant-col-header" style="display: none;">Tenant</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -619,12 +740,89 @@
             <h4 style="margin-bottom: 12px; color: var(--text-primary);"><i class="fas fa-info-circle"></i> About System Users</h4>
             <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
               System users are people who can access this application. They must authenticate with Microsoft O365.<br>
-              <strong>Admin</strong> role: Full access to analytics and admin panel.<br>
-              <strong>User</strong> role: Access only to analytics dashboard.
+              <strong>Super Admin</strong> role: Cross-tenant access. Manages tenants and all data.<br>
+              <strong>Admin</strong> role: Full access to analytics and admin panel for their tenant.<br>
+              <strong>User</strong> role: Access only to analytics dashboard for their tenant.
             </p>
           </div>
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- Tenant Modal (Super Admin) -->
+  <div id="tenant-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="tenant-modal-title">Add Tenant</h3>
+        <button class="modal-close" onclick="closeTenantModal()">&times;</button>
+      </div>
+      <form id="tenant-form" onsubmit="saveTenant(event)">
+        <input type="hidden" id="tenant-id">
+        <div class="form-group">
+          <label class="form-label">Name *</label>
+          <input type="text" id="tenant-name" class="form-input" placeholder="e.g., Acme Corp" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Slug * (lowercase, hyphens only)</label>
+          <input type="text" id="tenant-slug" class="form-input" placeholder="e.g., acme-corp" required
+                 pattern="[a-z0-9-]+" title="Only lowercase letters, numbers, and hyphens">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Domain</label>
+          <input type="text" id="tenant-domain" class="form-input" placeholder="e.g., acme.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Azure Tenant ID</label>
+          <input type="text" id="tenant-azure-id" class="form-input" placeholder="Optional Azure AD tenant ID">
+        </div>
+        <div class="form-group" id="tenant-active-group" style="display: none;">
+          <label class="form-checkbox">
+            <input type="checkbox" id="tenant-active" checked>
+            <span>Active</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeTenantModal()">Cancel</button>
+          <button type="submit" class="btn-save">Save Tenant</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Tenant API Keys Modal (Super Admin) -->
+  <div id="tenant-api-keys-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="tenant-api-keys-modal-title">Configure API Keys</h3>
+        <button class="modal-close" onclick="closeTenantApiKeysModal()">&times;</button>
+      </div>
+      <div id="tenant-api-keys-status" style="margin-bottom: 16px;">
+        <!-- Current key status loaded here -->
+      </div>
+      <form id="tenant-api-keys-form" onsubmit="saveTenantApiKeys(event)">
+        <input type="hidden" id="tenant-api-keys-id">
+        <div class="form-group">
+          <label class="form-label">Front API Key (Shared Inboxes)</label>
+          <input type="text" id="tenant-api-key-shared" class="form-input"
+                 placeholder="Bearer xxxxx (leave blank to keep current)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Front API Key (Individual Users)</label>
+          <input type="text" id="tenant-api-key-individuals" class="form-input"
+                 placeholder="Bearer xxxxx (leave blank to keep current)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Front API Endpoint</label>
+          <input type="text" id="tenant-api-endpoint" class="form-input"
+                 placeholder="https://api2.frontapp.com/analytics/reports"
+                 value="https://api2.frontapp.com/analytics/reports">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeTenantApiKeysModal()">Cancel</button>
+          <button type="submit" class="btn-save">Save API Keys</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -782,6 +980,13 @@
             <option value="admin">Admin (Full access)</option>
           </select>
         </div>
+        <!-- Tenant dropdown (super admin only) -->
+        <div class="form-group" id="system-user-tenant-group" style="display: none;">
+          <label class="form-label">Tenant *</label>
+          <select id="system-user-tenant" class="form-input">
+            <option value="">-- Select tenant --</option>
+          </select>
+        </div>
         <div class="form-group" id="system-user-active-group" style="display: none;">
           <label class="form-checkbox">
             <input type="checkbox" id="system-user-active" checked>
@@ -800,15 +1005,73 @@
   <div id="toast" class="toast"></div>
 
   <!-- Auth JavaScript -->
-  <script src="auth.js?v=1"></script>
+  <script src="auth.js?v=2"></script>
 
   <script>
+    // Global state
+    let currentUser = null;
+    let currentUserIsSuperAdmin = false;
+    let allTenantsList = []; // for dropdowns
+    let adminActiveTenantId = null; // tenant context for super admin managing inboxes/users
+
+    // Build tenant query param for API calls (super admin context)
+    function adminTenantParam(prefix = '?') {
+      if (currentUserIsSuperAdmin && adminActiveTenantId) {
+        return `${prefix}tenantId=${adminActiveTenantId}`;
+      }
+      return '';
+    }
+
+    function adminTenantParamAppend() {
+      if (currentUserIsSuperAdmin && adminActiveTenantId) {
+        return `&tenantId=${adminActiveTenantId}`;
+      }
+      return '';
+    }
+
     // Check admin access on page load
-    Auth.checkAdmin().then(isAdmin => {
+    Auth.checkAdmin().then(async isAdmin => {
       if (isAdmin) {
-        Auth.renderUserHeader();
+        await Auth.renderUserHeader();
+        currentUser = Auth.currentUser;
+        currentUserIsSuperAdmin = currentUser && (currentUser.role === 'super_admin' || currentUser.isSuperAdmin);
+
+        // Show super admin nav and features
+        if (currentUserIsSuperAdmin) {
+          document.getElementById('super-admin-nav').style.display = 'block';
+          document.getElementById('tenant-col-header').style.display = '';
+
+          // Add super_admin role option to system user modal
+          const roleSelect = document.getElementById('system-user-role');
+          const opt = document.createElement('option');
+          opt.value = 'super_admin';
+          opt.textContent = 'Super Admin (Cross-tenant)';
+          roleSelect.appendChild(opt);
+
+          // Show tenant dropdown in system user modal
+          document.getElementById('system-user-tenant-group').style.display = 'block';
+
+          // Load tenants for dropdowns
+          await loadTenantsForDropdown();
+
+          // Add tenant context selector above the content area for Inboxes/Users/Assignments
+          addSuperAdminTenantSelector();
+        } else {
+          // Show API Keys tab for tenant admin
+          document.getElementById('api-keys-nav').style.display = 'block';
+        }
+
+        // Load initial data
+        if (!currentUserIsSuperAdmin) {
+          loadInboxes();
+          loadUsers();
+          loadFrontChannels();
+          loadFrontTeammates();
+        }
+        loadSystemUsers();
       }
     });
+
     const API_BASE = window.location.origin;
 
     // Tab navigation
@@ -825,6 +1088,12 @@
         if (tab === 'assignments') {
           loadInboxesForSelect();
         }
+        if (tab === 'tenants') {
+          loadTenants();
+        }
+        if (tab === 'api-keys') {
+          loadApiKeys();
+        }
       });
     });
 
@@ -837,12 +1106,342 @@
     }
 
     // ==========================================
+    // TENANTS (Super Admin)
+    // ==========================================
+
+    async function loadTenantsForDropdown() {
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants`);
+        if (res.ok) {
+          allTenantsList = await res.json();
+          // Populate tenant dropdown in system user modal
+          const select = document.getElementById('system-user-tenant');
+          select.innerHTML = '<option value="">-- Select tenant --</option>' +
+            allTenantsList.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+        }
+      } catch (error) {
+        console.error('Error loading tenants for dropdown:', error);
+      }
+    }
+
+    function addSuperAdminTenantSelector() {
+      if (allTenantsList.length === 0) return;
+
+      // Create a tenant context bar above the main content panels
+      const header = document.querySelector('.content-header');
+      const contextBar = document.createElement('div');
+      contextBar.id = 'admin-tenant-context';
+      contextBar.style.cssText = 'margin-bottom: 16px; padding: 12px 16px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; align-items: center; gap: 12px;';
+      contextBar.innerHTML = `
+        <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+          <i class="fas fa-building"></i> Tenant Context:
+        </span>
+        <select id="admin-tenant-selector" style="
+          padding: 6px 12px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          color: var(--text-primary);
+          font-size: 0.85rem;
+          min-width: 200px;
+        ">
+          <option value="">-- Select a tenant --</option>
+          ${allTenantsList.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+        </select>
+        <span id="tenant-context-hint" style="font-size: 0.8rem; color: var(--text-muted);">Select a tenant to manage Inboxes, Users, and Assignments</span>
+      `;
+      header.after(contextBar);
+
+      // Handle tenant context change
+      document.getElementById('admin-tenant-selector').addEventListener('change', (e) => {
+        adminActiveTenantId = e.target.value ? parseInt(e.target.value) : null;
+        if (adminActiveTenantId) {
+          document.getElementById('tenant-context-hint').textContent = '';
+          loadInboxes();
+          loadUsers();
+          loadFrontChannels();
+          loadFrontTeammates();
+        } else {
+          document.getElementById('tenant-context-hint').textContent = 'Select a tenant to manage Inboxes, Users, and Assignments';
+          // Clear tables
+          document.getElementById('inboxes-table').innerHTML = '';
+          document.getElementById('users-table').innerHTML = '';
+        }
+      });
+    }
+
+    async function loadTenants() {
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants`);
+        const tenants = await res.json();
+
+        const tbody = document.getElementById('tenants-table');
+        tbody.innerHTML = tenants.map(tenant => `
+          <tr>
+            <td><strong>${tenant.name}</strong></td>
+            <td><code>${tenant.slug}</code></td>
+            <td>${tenant.domain || '-'}</td>
+            <td>
+              ${tenant.front_api_key ? '<span class="badge badge-individual">Configured</span>' : '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: var(--danger);">Not set</span>'}
+            </td>
+            <td>
+              <span class="badge ${tenant.is_active ? 'badge-individual' : ''}" style="${!tenant.is_active ? 'background: rgba(239, 68, 68, 0.15); color: var(--danger);' : ''}">
+                ${tenant.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </td>
+            <td>
+              <button class="btn-action btn-assign" onclick="openTenantApiKeysModal(${tenant.id}, '${tenant.name.replace(/'/g, "\\'")}')">
+                <i class="fas fa-key"></i> Keys
+              </button>
+              <button class="btn-action btn-edit" onclick="editTenant(${tenant.id})">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+              <button class="btn-action btn-delete" onclick="deleteTenant(${tenant.id}, '${tenant.name.replace(/'/g, "\\'")}')">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading tenants:', error);
+        showToast('Error loading tenants', 'error');
+      }
+    }
+
+    function openTenantModal(tenant = null) {
+      const isEdit = !!tenant;
+      document.getElementById('tenant-modal-title').textContent = isEdit ? 'Edit Tenant' : 'Add Tenant';
+      document.getElementById('tenant-id').value = tenant?.id || '';
+      document.getElementById('tenant-name').value = tenant?.name || '';
+      document.getElementById('tenant-slug').value = tenant?.slug || '';
+      document.getElementById('tenant-domain').value = tenant?.domain || '';
+      document.getElementById('tenant-azure-id').value = tenant?.azure_tenant_id || '';
+      document.getElementById('tenant-active').checked = tenant?.is_active !== false;
+
+      document.getElementById('tenant-active-group').style.display = isEdit ? 'block' : 'none';
+      document.getElementById('tenant-modal').classList.add('active');
+    }
+
+    function closeTenantModal() {
+      document.getElementById('tenant-modal').classList.remove('active');
+      document.getElementById('tenant-form').reset();
+    }
+
+    async function editTenant(id) {
+      const res = await fetch(`${API_BASE}/api/tenants/${id}`);
+      const tenant = await res.json();
+      openTenantModal(tenant);
+    }
+
+    async function saveTenant(event) {
+      event.preventDefault();
+
+      const id = document.getElementById('tenant-id').value;
+      const data = {
+        name: document.getElementById('tenant-name').value,
+        slug: document.getElementById('tenant-slug').value,
+        domain: document.getElementById('tenant-domain').value || null,
+        azure_tenant_id: document.getElementById('tenant-azure-id').value || null,
+        is_active: document.getElementById('tenant-active').checked
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants${id ? `/${id}` : ''}`, {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error);
+        }
+
+        showToast(`Tenant ${id ? 'updated' : 'created'} successfully`);
+        closeTenantModal();
+        loadTenants();
+        loadTenantsForDropdown();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function deleteTenant(id, name) {
+      if (!confirm(`Are you sure you want to delete tenant "${name}"? This will affect all data for this tenant.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+
+        showToast('Tenant deleted successfully');
+        loadTenants();
+        loadTenantsForDropdown();
+      } catch (error) {
+        showToast('Error deleting tenant', 'error');
+      }
+    }
+
+    // ==========================================
+    // TENANT API KEYS (Super Admin)
+    // ==========================================
+
+    async function openTenantApiKeysModal(tenantId, tenantName) {
+      document.getElementById('tenant-api-keys-modal-title').textContent = `API Keys - ${tenantName}`;
+      document.getElementById('tenant-api-keys-id').value = tenantId;
+      document.getElementById('tenant-api-key-shared').value = '';
+      document.getElementById('tenant-api-key-individuals').value = '';
+      document.getElementById('tenant-api-endpoint').value = 'https://api2.frontapp.com/analytics/reports';
+
+      // Load current key status
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants/${tenantId}/api-keys`);
+        if (res.ok) {
+          const data = await res.json();
+          const statusDiv = document.getElementById('tenant-api-keys-status');
+          statusDiv.innerHTML = `
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <div class="api-key-status ${data.has_api_key ? 'configured' : 'not-configured'}">
+                <i class="fas fa-${data.has_api_key ? 'check-circle' : 'times-circle'}"></i>
+                Shared: ${data.has_api_key ? data.front_api_key_masked : 'Not configured'}
+              </div>
+              <div class="api-key-status ${data.has_api_key_individuals ? 'configured' : 'not-configured'}">
+                <i class="fas fa-${data.has_api_key_individuals ? 'check-circle' : 'times-circle'}"></i>
+                Individual: ${data.has_api_key_individuals ? data.front_api_key_individuals_masked : 'Not configured'}
+              </div>
+            </div>
+          `;
+          if (data.front_endpoint) {
+            document.getElementById('tenant-api-endpoint').value = data.front_endpoint;
+          }
+        }
+      } catch (error) {
+        console.error('Error loading tenant API keys:', error);
+      }
+
+      document.getElementById('tenant-api-keys-modal').classList.add('active');
+    }
+
+    function closeTenantApiKeysModal() {
+      document.getElementById('tenant-api-keys-modal').classList.remove('active');
+      document.getElementById('tenant-api-keys-form').reset();
+    }
+
+    async function saveTenantApiKeys(event) {
+      event.preventDefault();
+
+      const tenantId = document.getElementById('tenant-api-keys-id').value;
+      const data = {
+        front_api_key: document.getElementById('tenant-api-key-shared').value || undefined,
+        front_api_key_individuals: document.getElementById('tenant-api-key-individuals').value || undefined,
+        front_endpoint: document.getElementById('tenant-api-endpoint').value || 'https://api2.frontapp.com/analytics/reports'
+      };
+
+      // Remove undefined keys so we don't overwrite existing values with empty
+      Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
+
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants/${tenantId}/api-keys`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error);
+        }
+
+        showToast('API keys updated successfully');
+        closeTenantApiKeysModal();
+        loadTenants(); // Refresh to show updated status
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    // ==========================================
+    // API KEYS (Tenant Admin)
+    // ==========================================
+
+    async function loadApiKeys() {
+      if (!currentUser || !currentUser.tenantId) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}/api-keys`);
+        if (!res.ok) throw new Error('Failed to load API keys');
+        const data = await res.json();
+
+        const statusDiv = document.getElementById('api-keys-status');
+        statusDiv.innerHTML = `
+          <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+            <div class="api-key-status ${data.has_api_key ? 'configured' : 'not-configured'}">
+              <i class="fas fa-${data.has_api_key ? 'check-circle' : 'times-circle'}"></i>
+              Shared Key: ${data.has_api_key ? `Configured (${data.front_api_key_masked})` : 'Not configured'}
+            </div>
+            <div class="api-key-status ${data.has_api_key_individuals ? 'configured' : 'not-configured'}">
+              <i class="fas fa-${data.has_api_key_individuals ? 'check-circle' : 'times-circle'}"></i>
+              Individual Key: ${data.has_api_key_individuals ? `Configured (${data.front_api_key_individuals_masked})` : 'Not configured'}
+            </div>
+          </div>
+        `;
+
+        // Pre-fill endpoint
+        if (data.front_endpoint) {
+          document.getElementById('api-endpoint').value = data.front_endpoint;
+        }
+      } catch (error) {
+        console.error('Error loading API keys:', error);
+      }
+    }
+
+    async function saveApiKeys(event) {
+      event.preventDefault();
+
+      if (!currentUser || !currentUser.tenantId) {
+        showToast('No tenant context', 'error');
+        return;
+      }
+
+      const data = {
+        front_api_key: document.getElementById('api-key-shared').value || null,
+        front_api_key_individuals: document.getElementById('api-key-individuals').value || null,
+        front_endpoint: document.getElementById('api-endpoint').value || 'https://api2.frontapp.com/analytics/reports'
+      };
+
+      // Don't send empty strings - keep existing keys
+      if (!data.front_api_key) delete data.front_api_key;
+      if (!data.front_api_key_individuals) delete data.front_api_key_individuals;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}/api-keys`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error);
+        }
+
+        showToast('API keys updated successfully');
+        document.getElementById('api-key-shared').value = '';
+        document.getElementById('api-key-individuals').value = '';
+        loadApiKeys();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    // ==========================================
     // INBOXES
     // ==========================================
 
     async function loadInboxes() {
       try {
-        const res = await fetch(`${API_BASE}/api/inboxes`);
+        const res = await fetch(`${API_BASE}/api/inboxes${adminTenantParam()}`);
         const inboxes = await res.json();
 
         const tbody = document.getElementById('inboxes-table');
@@ -901,7 +1500,7 @@
     }
 
     async function editInbox(id) {
-      const res = await fetch(`${API_BASE}/api/inboxes/${id}`);
+      const res = await fetch(`${API_BASE}/api/inboxes/${id}${adminTenantParam()}`);
       const inbox = await res.json();
       openInboxModal(inbox);
     }
@@ -917,7 +1516,7 @@
       };
 
       try {
-        const res = await fetch(`${API_BASE}/api/inboxes${id ? `/${id}` : ''}`, {
+        const res = await fetch(`${API_BASE}/api/inboxes${id ? `/${id}` : ''}${adminTenantParam()}`, {
           method: id ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
@@ -942,7 +1541,7 @@
       }
 
       try {
-        const res = await fetch(`${API_BASE}/api/inboxes/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/api/inboxes/${id}${adminTenantParam()}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to delete');
 
         showToast('Inbox deleted successfully');
@@ -958,7 +1557,7 @@
 
     async function loadUsers() {
       try {
-        const res = await fetch(`${API_BASE}/api/users`);
+        const res = await fetch(`${API_BASE}/api/users${adminTenantParam()}`);
         const users = await res.json();
 
         const tbody = document.getElementById('users-table');
@@ -1020,7 +1619,7 @@
     }
 
     async function editUser(id) {
-      const res = await fetch(`${API_BASE}/api/users/${id}`);
+      const res = await fetch(`${API_BASE}/api/users/${id}${adminTenantParam()}`);
       const user = await res.json();
       openUserModal(user);
     }
@@ -1037,7 +1636,7 @@
       };
 
       try {
-        const res = await fetch(`${API_BASE}/api/users${id ? `/${id}` : ''}`, {
+        const res = await fetch(`${API_BASE}/api/users${id ? `/${id}` : ''}${adminTenantParam()}`, {
           method: id ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
@@ -1062,7 +1661,7 @@
       }
 
       try {
-        const res = await fetch(`${API_BASE}/api/users/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/api/users/${id}${adminTenantParam()}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to delete');
 
         showToast('User deleted successfully');
@@ -1080,7 +1679,7 @@
 
     async function loadInboxesForSelect() {
       try {
-        const res = await fetch(`${API_BASE}/api/inboxes`);
+        const res = await fetch(`${API_BASE}/api/inboxes${adminTenantParam()}`);
         const inboxes = await res.json();
 
         const select = document.getElementById('assignment-inbox-select');
@@ -1088,7 +1687,7 @@
           inboxes.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
 
         // Load all users
-        const usersRes = await fetch(`${API_BASE}/api/users`);
+        const usersRes = await fetch(`${API_BASE}/api/users${adminTenantParam()}`);
         allUsers = await usersRes.json();
       } catch (error) {
         console.error('Error loading data:', error);
@@ -1107,7 +1706,7 @@
       }
 
       try {
-        const res = await fetch(`${API_BASE}/api/inboxes/${inboxId}/users`);
+        const res = await fetch(`${API_BASE}/api/inboxes/${inboxId}/users${adminTenantParam()}`);
         const assignedUsers = await res.json();
         const assignedIds = assignedUsers.map(u => u.id);
 
@@ -1171,7 +1770,7 @@
 
     async function loadFrontChannels() {
       try {
-        const res = await fetch(`${API_BASE}/api/front/channels`);
+        const res = await fetch(`${API_BASE}/api/front/channels${adminTenantParam()}`);
         if (!res.ok) throw new Error('Failed to load channels');
         frontChannels = await res.json();
         console.log(`Loaded ${frontChannels.length} shared channels from Front`);
@@ -1241,7 +1840,7 @@
 
     async function loadFrontTeammates() {
       try {
-        const res = await fetch(`${API_BASE}/api/front/teammates`);
+        const res = await fetch(`${API_BASE}/api/front/teammates${adminTenantParam()}`);
         if (!res.ok) throw new Error('Failed to load teammates');
         frontTeammates = await res.json();
         console.log(`Loaded ${frontTeammates.length} teammates from Front`);
@@ -1314,30 +1913,42 @@
         const users = await res.json();
 
         const tbody = document.getElementById('system-users-table');
-        tbody.innerHTML = users.map(user => `
-          <tr>
-            <td><strong>${user.name}</strong></td>
-            <td>${user.email}</td>
-            <td>
-              <span class="badge ${user.role === 'admin' ? 'badge-count' : 'badge-individual'}">
-                ${user.role === 'admin' ? 'Admin' : 'User'}
-              </span>
-            </td>
-            <td>
-              <span class="badge ${user.is_active ? 'badge-individual' : ''}" style="${!user.is_active ? 'background: rgba(239, 68, 68, 0.15); color: var(--danger);' : ''}">
-                ${user.is_active ? 'Active' : 'Inactive'}
-              </span>
-            </td>
-            <td>
-              <button class="btn-action btn-edit" onclick="editSystemUser(${user.id})">
-                <i class="fas fa-edit"></i> Edit
-              </button>
-              <button class="btn-action btn-delete" onclick="deleteSystemUser(${user.id}, '${user.name.replace(/'/g, "\\'")}')">
-                <i class="fas fa-trash"></i> Delete
-              </button>
-            </td>
-          </tr>
-        `).join('');
+        tbody.innerHTML = users.map(user => {
+          let roleBadge = '';
+          if (user.role === 'super_admin') {
+            roleBadge = '<span class="badge badge-super">Super Admin</span>';
+          } else if (user.role === 'admin') {
+            roleBadge = '<span class="badge badge-count">Admin</span>';
+          } else {
+            roleBadge = '<span class="badge badge-individual">User</span>';
+          }
+
+          const tenantCol = currentUserIsSuperAdmin
+            ? `<td>${user.tenant_name || (user.role === 'super_admin' ? '<em>Global</em>' : '-')}</td>`
+            : '';
+
+          return `
+            <tr>
+              <td><strong>${user.name}</strong></td>
+              <td>${user.email}</td>
+              <td>${roleBadge}</td>
+              ${tenantCol}
+              <td>
+                <span class="badge ${user.is_active ? 'badge-individual' : ''}" style="${!user.is_active ? 'background: rgba(239, 68, 68, 0.15); color: var(--danger);' : ''}">
+                  ${user.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </td>
+              <td>
+                <button class="btn-action btn-edit" onclick="editSystemUser(${user.id})">
+                  <i class="fas fa-edit"></i> Edit
+                </button>
+                <button class="btn-action btn-delete" onclick="deleteSystemUser(${user.id}, '${user.name.replace(/'/g, "\\'")}')">
+                  <i class="fas fa-trash"></i> Delete
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
       } catch (error) {
         console.error('Error loading system users:', error);
         showToast('Error loading system users', 'error');
@@ -1352,6 +1963,11 @@
       document.getElementById('system-user-email').value = user?.email || '';
       document.getElementById('system-user-role').value = user?.role || 'user';
       document.getElementById('system-user-active').checked = user?.is_active !== false;
+
+      // Set tenant dropdown value if super admin
+      if (currentUserIsSuperAdmin) {
+        document.getElementById('system-user-tenant').value = user?.tenant_id || '';
+      }
 
       // Show/hide active checkbox based on mode
       document.getElementById('system-user-active-group').style.display = isEdit ? 'block' : 'none';
@@ -1380,6 +1996,12 @@
         role: document.getElementById('system-user-role').value,
         is_active: document.getElementById('system-user-active').checked
       };
+
+      // Include tenant_id if super admin
+      if (currentUserIsSuperAdmin) {
+        const tenantVal = document.getElementById('system-user-tenant').value;
+        data.tenant_id = tenantVal ? parseInt(tenantVal) : null;
+      }
 
       try {
         const res = await fetch(`${API_BASE}/api/system-users${id ? `/${id}` : ''}`, {
@@ -1419,13 +2041,6 @@
         showToast(error.message, 'error');
       }
     }
-
-    // Initial load
-    loadInboxes();
-    loadUsers();
-    loadSystemUsers();
-    loadFrontChannels();
-    loadFrontTeammates();
   </script>
 </body>
 

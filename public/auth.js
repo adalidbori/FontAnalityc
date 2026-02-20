@@ -1,5 +1,5 @@
 /**
- * Authentication utilities for Front Analytics
+ * Authentication utilities for Front Analytics (Multi-Tenant)
  */
 const Auth = {
   // Current user data (cached)
@@ -28,13 +28,13 @@ const Auth = {
   },
 
   /**
-   * Check if current user has admin role
+   * Check if current user has admin or super_admin role
    */
   async checkAdmin() {
     const user = await this.checkAuth();
     if (!user) return false;
 
-    if (user.role !== 'admin') {
+    if (user.role !== 'admin' && user.role !== 'super_admin') {
       window.location.href = '/access-denied.html';
       return false;
     }
@@ -77,6 +77,13 @@ const Auth = {
     const container = document.getElementById(containerId);
     if (!container) return;
 
+    let roleLabel = 'User';
+    if (user.role === 'super_admin' || user.isSuperAdmin) {
+      roleLabel = 'Super Administrator';
+    } else if (user.role === 'admin') {
+      roleLabel = 'Administrator';
+    }
+
     container.innerHTML = `
       <div class="user-info">
         <div class="user-avatar">
@@ -84,7 +91,7 @@ const Auth = {
         </div>
         <div class="user-details">
           <span class="user-name">${user.name}</span>
-          <span class="user-role">${user.role === 'admin' ? 'Administrator' : 'User'}</span>
+          <span class="user-role">${roleLabel}</span>
         </div>
         <button onclick="Auth.logout()" class="btn-logout" title="Logout">
           <i class="fas fa-sign-out-alt"></i>

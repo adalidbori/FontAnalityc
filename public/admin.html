@@ -493,6 +493,12 @@
                 <span>Tenants</span>
               </button>
             </div>
+            <div class="nav-item">
+              <button class="nav-link" data-tab="cache">
+                <span class="nav-icon"><i class="fas fa-sync-alt"></i></span>
+                <span>Cache</span>
+              </button>
+            </div>
           </div>
 
           <div class="nav-section-title">Management</div>
@@ -579,6 +585,38 @@
                 <!-- Loaded dynamically -->
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Cache Panel (Super Admin only) -->
+        <div id="panel-cache" class="admin-panel">
+          <div class="table-container">
+            <div class="admin-header">
+              <h3 class="admin-title"><i class="fas fa-sync-alt"></i> Cache Management</h3>
+            </div>
+            <div class="panel-content" style="padding: 20px;">
+              <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                Regenerate cached analytics data from the Front API. This process runs in the background and may take several minutes.
+              </p>
+              <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+                <button class="btn-add" id="btn-cache-retry" onclick="regenerateCache(false)">
+                  <i class="fas fa-redo"></i> Retry Failed Only
+                </button>
+                <button class="btn-add" style="background: var(--warning-color);" id="btn-cache-force" onclick="regenerateCache(true)">
+                  <i class="fas fa-sync-alt"></i> Force Regenerate All
+                </button>
+              </div>
+              <div id="cache-status" style="display: none; padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-md); margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <i class="fas fa-spinner fa-spin" id="cache-spinner"></i>
+                  <span id="cache-status-text">Regeneration in progress...</span>
+                </div>
+              </div>
+              <h4 style="margin-bottom: 12px; color: var(--text-primary);">Current Cache Files</h4>
+              <div id="cache-files-list">
+                <p style="color: var(--text-muted);">Loading...</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1090,6 +1128,9 @@
         }
         if (tab === 'tenants') {
           loadTenants();
+        }
+        if (tab === 'cache') {
+          loadCacheFiles();
         }
         if (tab === 'api-keys') {
           loadApiKeys();
@@ -2039,6 +2080,92 @@
         loadSystemUsers();
       } catch (error) {
         showToast(error.message, 'error');
+      }
+    }
+
+    // ==========================================
+    // CACHE MANAGEMENT
+    // ==========================================
+
+    async function loadCacheFiles() {
+      const container = document.getElementById('cache-files-list');
+      try {
+        const res = await fetch(`${API_BASE}/listCaches${adminTenantParam()}`);
+        if (!res.ok) throw new Error('Failed to load caches');
+        const data = await res.json();
+
+        if (!data.caches || data.caches.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-muted);">No cache files found.</p>';
+          return;
+        }
+
+        container.innerHTML = `
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Department</th>
+                <th>Range</th>
+                <th>Records</th>
+                <th>Errors</th>
+                <th>Generated</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.caches.map(c => {
+                const errors = c.errorCount || 0;
+                const statusClass = errors > 0 ? 'color: var(--danger-color);' : 'color: var(--success-color);';
+                return `
+                  <tr>
+                    <td class="fw-medium">${c.department}</td>
+                    <td>${c.rangeLabel || c.range}</td>
+                    <td class="text-center">${c.totalRecords}</td>
+                    <td class="text-center" style="${statusClass}">${errors > 0 ? errors + ' errors' : 'OK'}</td>
+                    <td>${new Date(c.generatedAt).toLocaleString()}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (error) {
+        container.innerHTML = `<p style="color: var(--danger-color);">Error loading cache files: ${error.message}</p>`;
+      }
+    }
+
+    async function regenerateCache(force) {
+      const btnRetry = document.getElementById('btn-cache-retry');
+      const btnForce = document.getElementById('btn-cache-force');
+      const statusDiv = document.getElementById('cache-status');
+      const statusText = document.getElementById('cache-status-text');
+      const spinner = document.getElementById('cache-spinner');
+
+      btnRetry.disabled = true;
+      btnForce.disabled = true;
+      statusDiv.style.display = 'block';
+      statusText.textContent = force ? 'Force regenerating all caches...' : 'Retrying failed records...';
+      spinner.className = 'fas fa-spinner fa-spin';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/cache/regenerate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force })
+        });
+
+        if (!res.ok) throw new Error('Failed to start regeneration');
+
+        statusText.textContent = 'Regeneration started! This runs in the background and may take several minutes. Refresh the cache list to check progress.';
+        spinner.className = 'fas fa-check-circle';
+        spinner.style.color = 'var(--success-color)';
+        showToast('Cache regeneration started');
+      } catch (error) {
+        statusText.textContent = `Error: ${error.message}`;
+        spinner.className = 'fas fa-exclamation-circle';
+        spinner.style.color = 'var(--danger-color)';
+        showToast('Failed to start regeneration', 'error');
+      } finally {
+        btnRetry.disabled = false;
+        btnForce.disabled = false;
       }
     }
   </script>

@@ -639,13 +639,17 @@ app.get('/listCaches', requireAuth, async (req, res) => {
     const caches = files.map(filename => {
       const filepath = path.join(CACHE_DIR, filename);
       const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+      const errorCount = data.apiResponses
+        ? data.apiResponses.filter(r => r.error || !r.apiData).length
+        : 0;
       return {
         filename,
         department: data.department,
         range: data.range,
         rangeLabel: data.rangeLabel,
         generatedAt: data.generatedAt,
-        totalRecords: data.totalRecords
+        totalRecords: data.totalRecords,
+        errorCount
       };
     });
 

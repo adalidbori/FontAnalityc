@@ -1,6 +1,6 @@
 /**
- * Database Module - Neon PostgreSQL
- * Maneja conexión y operaciones CRUD para inboxes, users y asignaciones
+ * Database Module - Neon PostgreSQL (Multi-Tenant)
+ * Maneja conexión y operaciones CRUD para tenants, inboxes, users y asignaciones
  */
 
 const { Pool } = require('pg');
@@ -30,13 +30,31 @@ async function initializeDatabase() {
   const client = await pool.connect();
 
   try {
+    // Tabla de tenants
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        slug VARCHAR(100) UNIQUE NOT NULL,
+        domain VARCHAR(255),
+        azure_tenant_id VARCHAR(100),
+        front_api_key TEXT,
+        front_api_key_individuals TEXT,
+        front_endpoint VARCHAR(500) DEFAULT 'https://api2.frontapp.com/analytics/reports',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Tabla de inboxes (shared mailboxes)
     await client.query(`
       CREATE TABLE IF NOT EXISTS inboxes (
         id SERIAL PRIMARY KEY,
-        code VARCHAR(50) UNIQUE NOT NULL,
+        code VARCHAR(50) NOT NULL,
         name VARCHAR(100) NOT NULL,
         description TEXT,
+        tenant_id INTEGER REFERENCES tenants(id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -46,10 +64,11 @@ async function initializeDatabase() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        teammate_id VARCHAR(50) UNIQUE NOT NULL,
+        teammate_id VARCHAR(50) NOT NULL,
         email VARCHAR(255) NOT NULL,
         name VARCHAR(200) NOT NULL,
         is_individual BOOLEAN DEFAULT FALSE,
+        tenant_id INTEGER REFERENCES tenants(id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -72,9 +91,10 @@ async function initializeDatabase() {
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
         name VARCHAR(200) NOT NULL,
-        role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+        role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'super_admin')),
         is_active BOOLEAN DEFAULT TRUE,
         azure_oid VARCHAR(100),
+        tenant_id INTEGER REFERENCES tenants(id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -88,6 +108,9 @@ async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_user_inbox_inbox ON user_inbox(inbox_id);
       CREATE INDEX IF NOT EXISTS idx_system_users_email ON system_users(email);
       CREATE INDEX IF NOT EXISTS idx_system_users_azure_oid ON system_users(azure_oid);
+      CREATE INDEX IF NOT EXISTS idx_inboxes_tenant_id ON inboxes(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_system_users_tenant_id ON system_users(tenant_id);
     `);
 
     console.log('Database tables initialized successfully');
@@ -97,70 +120,153 @@ async function initializeDatabase() {
 }
 
 // ==========================================
-// INBOX CRUD OPERATIONS
+// TENANT CRUD OPERATIONS
 // ==========================================
 
-async function getAllInboxes() {
+async function getAllTenants() {
+  const result = await pool.query(
+    'SELECT * FROM tenants ORDER BY name'
+  );
+  return result.rows;
+}
+
+async function getActiveTenants() {
+  const result = await pool.query(
+    'SELECT * FROM tenants WHERE is_active = TRUE ORDER BY name'
+  );
+  return result.rows;
+}
+
+async function getTenantById(id) {
+  const result = await pool.query(
+    'SELECT * FROM tenants WHERE id = $1',
+    [id]
+  );
+  return result.rows[0];
+}
+
+async function getTenantBySlug(slug) {
+  const result = await pool.query(
+    'SELECT * FROM tenants WHERE slug = $1',
+    [slug]
+  );
+  return result.rows[0];
+}
+
+async function createTenant(name, slug, domain = null, azureTenantId = null) {
+  const result = await pool.query(
+    `INSERT INTO tenants (name, slug, domain, azure_tenant_id)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [name, slug, domain, azureTenantId]
+  );
+  return result.rows[0];
+}
+
+async function updateTenant(id, name, slug, domain, azureTenantId, isActive) {
+  const result = await pool.query(
+    `UPDATE tenants
+     SET name = $2, slug = $3, domain = $4, azure_tenant_id = $5, is_active = $6, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, name, slug, domain, azureTenantId, isActive]
+  );
+  return result.rows[0];
+}
+
+async function deleteTenant(id) {
+  const result = await pool.query(
+    'DELETE FROM tenants WHERE id = $1 RETURNING *',
+    [id]
+  );
+  return result.rows[0];
+}
+
+async function setTenantApiKeys(id, frontApiKey, frontApiKeyIndividuals, frontEndpoint) {
+  const result = await pool.query(
+    `UPDATE tenants
+     SET front_api_key = $2, front_api_key_individuals = $3, front_endpoint = $4, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, frontApiKey, frontApiKeyIndividuals, frontEndpoint]
+  );
+  return result.rows[0];
+}
+
+async function getTenantApiKeys(id) {
+  const result = await pool.query(
+    'SELECT id, front_api_key, front_api_key_individuals, front_endpoint FROM tenants WHERE id = $1',
+    [id]
+  );
+  return result.rows[0];
+}
+
+// ==========================================
+// INBOX CRUD OPERATIONS (Tenant-Scoped)
+// ==========================================
+
+async function getAllInboxes(tenantId) {
   const result = await pool.query(`
     SELECT i.*, COUNT(ui.user_id) as user_count
     FROM inboxes i
     LEFT JOIN user_inbox ui ON i.id = ui.inbox_id
+    WHERE i.tenant_id = $1
     GROUP BY i.id
     ORDER BY i.name
-  `);
+  `, [tenantId]);
   return result.rows;
 }
 
-async function getInboxByCode(code) {
+async function getInboxByCode(code, tenantId) {
   const result = await pool.query(
-    'SELECT * FROM inboxes WHERE code = $1',
-    [code]
+    'SELECT * FROM inboxes WHERE code = $1 AND tenant_id = $2',
+    [code, tenantId]
   );
   return result.rows[0];
 }
 
-async function getInboxById(id) {
+async function getInboxById(id, tenantId) {
   const result = await pool.query(
-    'SELECT * FROM inboxes WHERE id = $1',
-    [id]
+    'SELECT * FROM inboxes WHERE id = $1 AND tenant_id = $2',
+    [id, tenantId]
   );
   return result.rows[0];
 }
 
-async function createInbox(code, name, description = null) {
+async function createInbox(code, name, description = null, tenantId) {
   const result = await pool.query(
-    `INSERT INTO inboxes (code, name, description)
-     VALUES ($1, $2, $3)
+    `INSERT INTO inboxes (code, name, description, tenant_id)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [code, name, description]
+    [code, name, description, tenantId]
   );
   return result.rows[0];
 }
 
-async function updateInbox(id, code, name, description) {
+async function updateInbox(id, code, name, description, tenantId) {
   const result = await pool.query(
     `UPDATE inboxes
      SET code = $2, name = $3, description = $4, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1
+     WHERE id = $1 AND tenant_id = $5
      RETURNING *`,
-    [id, code, name, description]
+    [id, code, name, description, tenantId]
   );
   return result.rows[0];
 }
 
-async function deleteInbox(id) {
+async function deleteInbox(id, tenantId) {
   const result = await pool.query(
-    'DELETE FROM inboxes WHERE id = $1 RETURNING *',
-    [id]
+    'DELETE FROM inboxes WHERE id = $1 AND tenant_id = $2 RETURNING *',
+    [id, tenantId]
   );
   return result.rows[0];
 }
 
 // ==========================================
-// USER CRUD OPERATIONS
+// USER CRUD OPERATIONS (Tenant-Scoped)
 // ==========================================
 
-async function getAllUsers() {
+async function getAllUsers(tenantId) {
   const result = await pool.query(`
     SELECT u.*,
            COALESCE(json_agg(
@@ -169,21 +275,22 @@ async function getAllUsers() {
     FROM users u
     LEFT JOIN user_inbox ui ON u.id = ui.user_id
     LEFT JOIN inboxes i ON ui.inbox_id = i.id
+    WHERE u.tenant_id = $1
     GROUP BY u.id
     ORDER BY u.name
-  `);
+  `, [tenantId]);
   return result.rows;
 }
 
-async function getUserByTeammateId(teammateId) {
+async function getUserByTeammateId(teammateId, tenantId) {
   const result = await pool.query(
-    'SELECT * FROM users WHERE teammate_id = $1',
-    [teammateId]
+    'SELECT * FROM users WHERE teammate_id = $1 AND tenant_id = $2',
+    [teammateId, tenantId]
   );
   return result.rows[0];
 }
 
-async function getUserById(id) {
+async function getUserById(id, tenantId) {
   const result = await pool.query(`
     SELECT u.*,
            COALESCE(json_agg(
@@ -192,37 +299,37 @@ async function getUserById(id) {
     FROM users u
     LEFT JOIN user_inbox ui ON u.id = ui.user_id
     LEFT JOIN inboxes i ON ui.inbox_id = i.id
-    WHERE u.id = $1
+    WHERE u.id = $1 AND u.tenant_id = $2
     GROUP BY u.id
-  `, [id]);
+  `, [id, tenantId]);
   return result.rows[0];
 }
 
-async function createUser(teammateId, email, name, isIndividual = false) {
+async function createUser(teammateId, email, name, isIndividual = false, tenantId) {
   const result = await pool.query(
-    `INSERT INTO users (teammate_id, email, name, is_individual)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO users (teammate_id, email, name, is_individual, tenant_id)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [teammateId, email, name, isIndividual]
+    [teammateId, email, name, isIndividual, tenantId]
   );
   return result.rows[0];
 }
 
-async function updateUser(id, teammateId, email, name, isIndividual) {
+async function updateUser(id, teammateId, email, name, isIndividual, tenantId) {
   const result = await pool.query(
     `UPDATE users
      SET teammate_id = $2, email = $3, name = $4, is_individual = $5, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1
+     WHERE id = $1 AND tenant_id = $6
      RETURNING *`,
-    [id, teammateId, email, name, isIndividual]
+    [id, teammateId, email, name, isIndividual, tenantId]
   );
   return result.rows[0];
 }
 
-async function deleteUser(id) {
+async function deleteUser(id, tenantId) {
   const result = await pool.query(
-    'DELETE FROM users WHERE id = $1 RETURNING *',
-    [id]
+    'DELETE FROM users WHERE id = $1 AND tenant_id = $2 RETURNING *',
+    [id, tenantId]
   );
   return result.rows[0];
 }
@@ -261,26 +368,126 @@ async function getUsersByInbox(inboxId) {
   return result.rows;
 }
 
-async function getUsersByInboxName(inboxName) {
+async function getUsersByInboxName(inboxName, tenantId) {
   const result = await pool.query(`
     SELECT u.teammate_id as id, u.email, u.name, i.name as inbox, i.code
     FROM users u
     INNER JOIN user_inbox ui ON u.id = ui.user_id
     INNER JOIN inboxes i ON ui.inbox_id = i.id
-    WHERE i.name = $1
+    WHERE i.name = $1 AND i.tenant_id = $2
     ORDER BY u.name
-  `, [inboxName]);
+  `, [inboxName, tenantId]);
   return result.rows;
 }
 
-async function getIndividualUsers() {
+async function getIndividualUsers(tenantId) {
   const result = await pool.query(`
     SELECT teammate_id as id, email, name
     FROM users
-    WHERE is_individual = TRUE
+    WHERE is_individual = TRUE AND tenant_id = $1
     ORDER BY name
-  `);
+  `, [tenantId]);
   return result.rows;
+}
+
+// ==========================================
+// SYSTEM USER CRUD OPERATIONS (Authentication)
+// ==========================================
+
+// Auth lookups stay cross-tenant (needed for login)
+async function getSystemUserByEmail(email) {
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE LOWER(email) = LOWER($1)',
+    [email]
+  );
+  return result.rows[0];
+}
+
+async function getSystemUserById(id) {
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE id = $1',
+    [id]
+  );
+  return result.rows[0];
+}
+
+async function getSystemUserByAzureOid(azureOid) {
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE azure_oid = $1',
+    [azureOid]
+  );
+  return result.rows[0];
+}
+
+// Scoped: tenant admin sees own tenant, super admin sees all
+async function getAllSystemUsers(tenantId) {
+  if (tenantId === null || tenantId === undefined) {
+    // Super admin: see all
+    const result = await pool.query(`
+      SELECT su.*, t.name as tenant_name
+      FROM system_users su
+      LEFT JOIN tenants t ON su.tenant_id = t.id
+      ORDER BY su.name
+    `);
+    return result.rows;
+  }
+  // Tenant admin: see own tenant only
+  const result = await pool.query(
+    'SELECT * FROM system_users WHERE tenant_id = $1 ORDER BY name',
+    [tenantId]
+  );
+  return result.rows;
+}
+
+async function createSystemUser(email, name, role = 'user', azureOid = null, tenantId = null) {
+  const result = await pool.query(
+    `INSERT INTO system_users (email, name, role, azure_oid, tenant_id)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [email, name, role, azureOid, tenantId]
+  );
+  return result.rows[0];
+}
+
+async function updateSystemUser(id, email, name, role, isActive) {
+  const result = await pool.query(
+    `UPDATE system_users
+     SET email = $2, name = $3, role = $4, is_active = $5, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, email, name, role, isActive]
+  );
+  return result.rows[0];
+}
+
+async function updateSystemUserTenant(id, tenantId) {
+  const result = await pool.query(
+    `UPDATE system_users
+     SET tenant_id = $2, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, tenantId]
+  );
+  return result.rows[0];
+}
+
+async function updateSystemUserAzureOid(id, azureOid) {
+  const result = await pool.query(
+    `UPDATE system_users
+     SET azure_oid = $2, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1
+     RETURNING *`,
+    [id, azureOid]
+  );
+  return result.rows[0];
+}
+
+async function deleteSystemUser(id) {
+  const result = await pool.query(
+    'DELETE FROM system_users WHERE id = $1 RETURNING *',
+    [id]
+  );
+  return result.rows[0];
 }
 
 // ==========================================
@@ -380,87 +587,22 @@ async function migrateFromJSON(usersData, individualUsersData) {
 }
 
 // ==========================================
-// SYSTEM USER CRUD OPERATIONS (Authentication)
-// ==========================================
-
-async function getSystemUserByEmail(email) {
-  const result = await pool.query(
-    'SELECT * FROM system_users WHERE LOWER(email) = LOWER($1)',
-    [email]
-  );
-  return result.rows[0];
-}
-
-async function getSystemUserById(id) {
-  const result = await pool.query(
-    'SELECT * FROM system_users WHERE id = $1',
-    [id]
-  );
-  return result.rows[0];
-}
-
-async function getSystemUserByAzureOid(azureOid) {
-  const result = await pool.query(
-    'SELECT * FROM system_users WHERE azure_oid = $1',
-    [azureOid]
-  );
-  return result.rows[0];
-}
-
-async function getAllSystemUsers() {
-  const result = await pool.query(
-    'SELECT * FROM system_users ORDER BY name'
-  );
-  return result.rows;
-}
-
-async function createSystemUser(email, name, role = 'user', azureOid = null) {
-  const result = await pool.query(
-    `INSERT INTO system_users (email, name, role, azure_oid)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [email, name, role, azureOid]
-  );
-  return result.rows[0];
-}
-
-async function updateSystemUser(id, email, name, role, isActive) {
-  const result = await pool.query(
-    `UPDATE system_users
-     SET email = $2, name = $3, role = $4, is_active = $5, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1
-     RETURNING *`,
-    [id, email, name, role, isActive]
-  );
-  return result.rows[0];
-}
-
-async function updateSystemUserAzureOid(id, azureOid) {
-  const result = await pool.query(
-    `UPDATE system_users
-     SET azure_oid = $2, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1
-     RETURNING *`,
-    [id, azureOid]
-  );
-  return result.rows[0];
-}
-
-async function deleteSystemUser(id) {
-  const result = await pool.query(
-    'DELETE FROM system_users WHERE id = $1 RETURNING *',
-    [id]
-  );
-  return result.rows[0];
-}
-
-// ==========================================
 // EXPORTS
 // ==========================================
 
 module.exports = {
   pool,
   initializeDatabase,
+  // Tenants
+  getAllTenants,
+  getActiveTenants,
+  getTenantById,
+  getTenantBySlug,
+  createTenant,
+  updateTenant,
+  deleteTenant,
+  setTenantApiKeys,
+  getTenantApiKeys,
   // Inboxes
   getAllInboxes,
   getInboxByCode,
@@ -488,6 +630,7 @@ module.exports = {
   getAllSystemUsers,
   createSystemUser,
   updateSystemUser,
+  updateSystemUserTenant,
   updateSystemUserAzureOid,
   deleteSystemUser,
   // Migration

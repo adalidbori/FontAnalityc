@@ -1,17 +1,16 @@
 /**
- * Cache Scheduler - Pre-calcula métricas para rangos predefinidos
+ * Cache Scheduler - Pre-calcula métricas para rangos predefinidos (Multi-Tenant)
  *
  * Todos los rangos se actualizan diariamente a las 6 AM ET:
  * - Yesterday, This Week, Last Week, This Month, Last Month
+ *
+ * Iterates over all active tenants and precalculates per-tenant.
  */
 
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-const ENDPOINT = process.env.ENDPOINT;
-const FRONT_API_KEY = process.env.FRONT_API_KEY;
-const FRONT_API_KEY_INDIVIDUALS = process.env.FRONT_API_KEY_INDIVIDUALS;
 const db = require('./db');
 
 // Rangos predefinidos
@@ -146,11 +145,11 @@ function getDateRange(rangeName) {
 }
 
 /**
- * Obtiene todos los departamentos (inboxes) desde la base de datos
+ * Obtiene todos los departamentos (inboxes) para un tenant desde la base de datos
  */
-async function getDepartmentsFromDB() {
+async function getDepartmentsForTenant(tenantId) {
   try {
-    const inboxes = await db.getAllInboxes();
+    const inboxes = await db.getAllInboxes(tenantId);
     return inboxes.map(inbox => inbox.name);
   } catch (error) {
     console.error('Error getting departments from database:', error.message);
@@ -161,9 +160,9 @@ async function getDepartmentsFromDB() {
 /**
  * Obtiene usuarios de un departamento desde la base de datos
  */
-async function getUsersByDepartment(departmentName) {
+async function getUsersByDepartment(departmentName, tenantId) {
   try {
-    const users = await db.getUsersByInboxName(departmentName);
+    const users = await db.getUsersByInboxName(departmentName, tenantId);
     return users;
   } catch (error) {
     console.error(`  Error getting users for ${departmentName}:`, error.message);
@@ -174,9 +173,9 @@ async function getUsersByDepartment(departmentName) {
 /**
  * Obtiene usuarios individuales desde la base de datos
  */
-async function getIndividualUsersFromDB() {
+async function getIndividualUsersFromDB(tenantId) {
   try {
-    const users = await db.getIndividualUsers();
+    const users = await db.getIndividualUsers(tenantId);
     return users;
   } catch (error) {
     console.error('Error getting individual users from database:', error.message);
@@ -185,72 +184,20 @@ async function getIndividualUsersFromDB() {
 }
 
 /**
- * Llama a la API de Front con reintentos
+ * Llama a la API de Front con reintentos (parameterized API key + endpoint)
  */
-async function callFrontApi(requestBody, recordIndex) {
+async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
   const maxRetries = 10;
   let retries = 0;
 
   while (retries < maxRetries) {
     try {
-      const response = await fetch(ENDPOINT, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': FRONT_API_KEY,
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (response.status === 429) {
-        const errorData = await response.json();
-        const waitTime = parseInt(errorData._error?.message?.match(/\d+/)?.[0] || 3000);
-        console.log(`  Rate limited. Waiting ${waitTime}ms...`);
-        await delay(waitTime + 500);
-        retries++;
-        continue;
-      }
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.status === 'done') {
-        return { apiData: data };
-      }
-
-      // Status pending/running, retry
-      retries++;
-      if (retries < maxRetries) {
-        await delay(2500);
-      }
-    } catch (error) {
-      console.error(`  Error for record ${recordIndex}:`, error.message);
-      return { error: error.message };
-    }
-  }
-
-  return { error: 'Max retries reached' };
-}
-
-/**
- * Llama a la API de Front con reintentos (usando API key de individuales)
- */
-async function callFrontApiIndividuals(requestBody, recordIndex) {
-  const maxRetries = 10;
-  let retries = 0;
-
-  while (retries < maxRetries) {
-    try {
-      const response = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': FRONT_API_KEY_INDIVIDUALS,
+          'Authorization': apiKey,
         },
         body: JSON.stringify(requestBody),
       });
@@ -291,9 +238,9 @@ async function callFrontApiIndividuals(requestBody, recordIndex) {
 /**
  * Pre-calcula métricas para un departamento y rango
  */
-async function precalculateDepartment(departmentName, rangeName) {
+async function precalculateDepartment(departmentName, rangeName, apiKey, endpoint, tenantId) {
   const range = getDateRange(rangeName);
-  const users = await getUsersByDepartment(departmentName);
+  const users = await getUsersByDepartment(departmentName, tenantId);
 
   if (users.length === 0) {
     console.log(`  No users found for ${departmentName}`);
@@ -318,7 +265,7 @@ async function precalculateDepartment(departmentName, rangeName) {
       metrics: ['num_messages_received', 'num_messages_sent', 'avg_response_time'],
     };
 
-    const result = await callFrontApi(requestBody, index + 1);
+    const result = await callFrontApi(requestBody, index + 1, apiKey, endpoint);
     apiResponses.push({
       recordIndex: index + 1,
       record: user,
@@ -346,9 +293,9 @@ async function precalculateDepartment(departmentName, rangeName) {
 /**
  * Pre-calcula métricas para todos los usuarios individuales en un rango
  */
-async function precalculateIndividuals(rangeName) {
+async function precalculateIndividuals(rangeName, apiKey, endpoint, tenantId) {
   const range = getDateRange(rangeName);
-  const users = await getIndividualUsersFromDB();
+  const users = await getIndividualUsersFromDB(tenantId);
 
   if (users.length === 0) {
     console.log(`  No individual users found`);
@@ -372,7 +319,7 @@ async function precalculateIndividuals(rangeName) {
       metrics: ['num_messages_received', 'num_messages_sent', 'avg_response_time'],
     };
 
-    const result = await callFrontApiIndividuals(requestBody, index + 1);
+    const result = await callFrontApi(requestBody, index + 1, apiKey, endpoint);
     apiResponses.push({
       recordIndex: index + 1,
       record: user,
@@ -398,20 +345,20 @@ async function precalculateIndividuals(rangeName) {
 }
 
 /**
- * Guarda resultados en cache
+ * Guarda resultados en cache (prefixed with tenant slug)
  */
-function saveToCache(departmentName, rangeName, data) {
-  const filename = `${departmentName.toLowerCase().replace(/\s+/g, '-')}_${rangeName}.json`;
+function saveToCache(tenantSlug, departmentName, rangeName, data) {
+  const filename = `${tenantSlug}_${departmentName.toLowerCase().replace(/\s+/g, '-')}_${rangeName}.json`;
   const filepath = path.join(CACHE_DIR, filename);
   fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
   console.log(`  Saved to cache: ${filename}`);
 }
 
 /**
- * Lee datos del cache
+ * Lee datos del cache (prefixed with tenant slug)
  */
-function readFromCache(departmentName, rangeName) {
-  const filename = `${departmentName.toLowerCase().replace(/\s+/g, '-')}_${rangeName}.json`;
+function readFromCache(tenantSlug, departmentName, rangeName) {
+  const filename = `${tenantSlug}_${departmentName.toLowerCase().replace(/\s+/g, '-')}_${rangeName}.json`;
   const filepath = path.join(CACHE_DIR, filename);
 
   if (fs.existsSync(filepath)) {
@@ -440,7 +387,7 @@ function needsUpdate(rangeName, cachedData) {
 
   // Force update if cache has errors
   if (hasCacheErrors(cachedData)) {
-    console.log(`  ⚠️  Cache has errors, forcing regeneration`);
+    console.log(`  Cache has errors, forcing regeneration`);
     return true;
   }
 
@@ -465,7 +412,7 @@ function needsUpdate(rangeName, cachedData) {
 }
 
 /**
- * Ejecuta el pre-cálculo completo
+ * Ejecuta el pre-cálculo completo para todos los tenants activos
  */
 async function runPrecalculation(forceAll = false) {
   console.log('========================================');
@@ -473,71 +420,99 @@ async function runPrecalculation(forceAll = false) {
   console.log(`Time: ${new Date().toISOString()}`);
   console.log('========================================\n');
 
-  // Obtener departamentos dinámicamente de la base de datos
-  const departments = await getDepartmentsFromDB();
+  // Get all active tenants
+  const tenants = await db.getActiveTenants();
 
-  if (departments.length === 0) {
-    console.log('No departments found in database. Please add inboxes first.');
+  if (tenants.length === 0) {
+    console.log('No active tenants found.');
     return;
   }
 
-  console.log(`Found ${departments.length} departments: ${departments.join(', ')}\n`);
+  console.log(`Found ${tenants.length} active tenant(s)\n`);
 
-  for (const department of departments) {
-    console.log(`\n📁 Department: ${department}`);
-    console.log('----------------------------------------');
+  for (const tenant of tenants) {
+    console.log(`\n========== Tenant: ${tenant.name} (${tenant.slug}) ==========`);
 
-    for (const rangeName of RANGES) {
-      const cached = readFromCache(department, rangeName);
-
-      if (!forceAll && !needsUpdate(rangeName, cached)) {
-        console.log(`  ⏭️  ${rangeName}: Using cached data (generated ${cached.generatedAt})`);
-        continue;
-      }
-
-      console.log(`  🔄 ${rangeName}: Fetching fresh data...`);
-
-      try {
-        const data = await precalculateDepartment(department, rangeName);
-        if (data) {
-          saveToCache(department, rangeName, data);
-          console.log(`  ✅ ${rangeName}: Done`);
-        }
-      } catch (error) {
-        console.error(`  ❌ ${rangeName}: Error - ${error.message}`);
-      }
-
-      // Delay entre rangos
-      await delay(3000);
-    }
-  }
-
-  // Pre-calculate individual users
-  console.log(`\n👤 Individual Users`);
-  console.log('----------------------------------------');
-
-  for (const rangeName of RANGES) {
-    const cached = readFromCache('individuals', rangeName);
-
-    if (!forceAll && !needsUpdate(rangeName, cached)) {
-      console.log(`  ⏭️  ${rangeName}: Using cached data (generated ${cached.generatedAt})`);
+    // Check if tenant has API keys configured
+    const keys = await db.getTenantApiKeys(tenant.id);
+    if (!keys || !keys.front_api_key) {
+      console.log('  Skipping: No Front API key configured');
       continue;
     }
 
-    console.log(`  🔄 ${rangeName}: Fetching fresh data...`);
+    const apiKey = keys.front_api_key;
+    const apiKeyIndividuals = keys.front_api_key_individuals;
+    const endpoint = keys.front_endpoint || 'https://api2.frontapp.com/analytics/reports';
 
-    try {
-      const data = await precalculateIndividuals(rangeName);
-      if (data) {
-        saveToCache('individuals', rangeName, data);
-        console.log(`  ✅ ${rangeName}: Done`);
+    // Get departments for this tenant
+    const departments = await getDepartmentsForTenant(tenant.id);
+
+    if (departments.length === 0) {
+      console.log('  No departments found for this tenant.');
+    } else {
+      console.log(`  Found ${departments.length} departments: ${departments.join(', ')}\n`);
+
+      for (const department of departments) {
+        console.log(`\n  Department: ${department}`);
+        console.log('  ----------------------------------------');
+
+        for (const rangeName of RANGES) {
+          const cached = readFromCache(tenant.slug, department, rangeName);
+
+          if (!forceAll && !needsUpdate(rangeName, cached)) {
+            console.log(`    ${rangeName}: Using cached data (generated ${cached.generatedAt})`);
+            continue;
+          }
+
+          console.log(`    ${rangeName}: Fetching fresh data...`);
+
+          try {
+            const data = await precalculateDepartment(department, rangeName, apiKey, endpoint, tenant.id);
+            if (data) {
+              saveToCache(tenant.slug, department, rangeName, data);
+              console.log(`    ${rangeName}: Done`);
+            }
+          } catch (error) {
+            console.error(`    ${rangeName}: Error - ${error.message}`);
+          }
+
+          // Delay entre rangos
+          await delay(3000);
+        }
       }
-    } catch (error) {
-      console.error(`  ❌ ${rangeName}: Error - ${error.message}`);
     }
 
-    // Delay entre rangos
-    await delay(3000);
+    // Pre-calculate individual users (if individual API key is configured)
+    if (apiKeyIndividuals) {
+      console.log(`\n  Individual Users`);
+      console.log('  ----------------------------------------');
+
+      for (const rangeName of RANGES) {
+        const cached = readFromCache(tenant.slug, 'individuals', rangeName);
+
+        if (!forceAll && !needsUpdate(rangeName, cached)) {
+          console.log(`    ${rangeName}: Using cached data (generated ${cached.generatedAt})`);
+          continue;
+        }
+
+        console.log(`    ${rangeName}: Fetching fresh data...`);
+
+        try {
+          const data = await precalculateIndividuals(rangeName, apiKeyIndividuals, endpoint, tenant.id);
+          if (data) {
+            saveToCache(tenant.slug, 'individuals', rangeName, data);
+            console.log(`    ${rangeName}: Done`);
+          }
+        } catch (error) {
+          console.error(`    ${rangeName}: Error - ${error.message}`);
+        }
+
+        // Delay entre rangos
+        await delay(3000);
+      }
+    } else {
+      console.log('\n  Skipping individuals: No individual API key configured');
+    }
   }
 
   console.log('\n========================================');
@@ -580,7 +555,7 @@ module.exports = {
   readFromCache,
   runPrecalculation,
   scheduleJobs,
-  getDepartmentsFromDB,
+  getDepartmentsForTenant,
   RANGES,
 };
 

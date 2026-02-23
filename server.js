@@ -13,10 +13,6 @@ const db = require('./db');
 const app = express();
 const port = process.env.PORT || 3001;
 
-const ENDPOINT = process.env.ENDPOINT;
-const FRONT_API_KEY = process.env.FRONT_API_KEY;
-const FRONT_API_KEY_INDIVIDUALS = process.env.FRONT_API_KEY_INDIVIDUALS;
-
 // Cache directory
 const CACHE_DIR = path.join(__dirname, 'cache');
 
@@ -137,7 +133,8 @@ if (process.env.AZURE_CLIENT_ID && process.env.AZURE_TENANT_ID) {
           email: systemUser.email,
           name: systemUser.name,
           role: systemUser.role,
-          azureOid: systemUser.azure_oid
+          azureOid: systemUser.azure_oid,
+          tenantId: systemUser.tenant_id
         });
       } catch (error) {
         console.error('Azure AD: Authentication error:', error);
@@ -165,7 +162,8 @@ passport.deserializeUser(async (id, done) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role
+        role: user.role,
+        tenantId: user.tenant_id
       });
     } else {
       done(null, false);
@@ -206,9 +204,9 @@ function requireAuth(req, res, next) {
   return res.redirect('/login.html');
 }
 
-// Check if user is admin
+// Check if user is admin (tenant admin OR super admin)
 function requireAdmin(req, res, next) {
-  if (req.isAuthenticated() && req.user.role === 'admin') {
+  if (req.isAuthenticated() && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
     return next();
   }
 
@@ -217,6 +215,36 @@ function requireAdmin(req, res, next) {
   }
 
   return res.redirect('/access-denied.html');
+}
+
+// Check if user is super admin
+function requireSuperAdmin(req, res, next) {
+  if (req.isAuthenticated() && req.user.role === 'super_admin') {
+    return next();
+  }
+
+  if (req.path.startsWith('/api/') || req.xhr || req.headers.accept?.includes('application/json')) {
+    return res.status(403).json({ error: 'Forbidden: Super Admin access required' });
+  }
+
+  return res.redirect('/access-denied.html');
+}
+
+// Helper: get the effective tenant ID for the current request
+// Super admins can specify a tenant context via query param or header
+function getEffectiveTenantId(req) {
+  if (req.user.role === 'super_admin') {
+    const fromQuery = req.query.tenantId;
+    const fromHeader = req.get('X-Tenant-ID');
+    const tenantId = fromQuery || fromHeader;
+    return tenantId ? parseInt(tenantId) : null;
+  }
+  return req.user.tenantId;
+}
+
+// Helper: check if current user is super admin
+function isSuperAdmin(req) {
+  return req.user.role === 'super_admin';
 }
 
 // ==========================================
@@ -345,7 +373,9 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
     id: req.user.id,
     email: req.user.email,
     name: req.user.name,
-    role: req.user.role
+    role: req.user.role,
+    tenantId: req.user.tenantId,
+    isSuperAdmin: req.user.role === 'super_admin'
   });
 });
 
@@ -355,7 +385,9 @@ app.get('/api/auth/status', (req, res) => {
     authenticated: req.isAuthenticated(),
     user: req.isAuthenticated() ? {
       name: req.user.name,
-      role: req.user.role
+      role: req.user.role,
+      tenantId: req.user.tenantId,
+      isSuperAdmin: req.user.role === 'super_admin'
     } : null
   });
 });
@@ -363,11 +395,169 @@ app.get('/api/auth/status', (req, res) => {
 // Utility function to delay execution
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ==========================================
+// TENANT MANAGEMENT ENDPOINTS (Super Admin only)
+// ==========================================
+
+// GET all tenants
+app.get('/api/tenants', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const tenants = await db.getAllTenants();
+    res.json(tenants);
+  } catch (error) {
+    console.error('Error getting tenants:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// CREATE tenant
+app.post('/api/tenants', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const { name, slug, domain, azure_tenant_id } = req.body;
+    if (!name || !slug) {
+      return res.status(400).json({ error: 'Name and slug are required' });
+    }
+    // Validate slug format
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers, and hyphens' });
+    }
+    const tenant = await db.createTenant(name, slug, domain, azure_tenant_id);
+    res.status(201).json(tenant);
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Tenant with this slug already exists' });
+    }
+    console.error('Error creating tenant:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET single tenant
+app.get('/api/tenants/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const tenant = await db.getTenantById(parseInt(req.params.id));
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    res.json(tenant);
+  } catch (error) {
+    console.error('Error getting tenant:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// UPDATE tenant
+app.put('/api/tenants/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const { name, slug, domain, azure_tenant_id, is_active } = req.body;
+    if (!name || !slug) {
+      return res.status(400).json({ error: 'Name and slug are required' });
+    }
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers, and hyphens' });
+    }
+    const tenant = await db.updateTenant(
+      parseInt(req.params.id), name, slug, domain, azure_tenant_id,
+      is_active !== undefined ? is_active : true
+    );
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    res.json(tenant);
+  } catch (error) {
+    console.error('Error updating tenant:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE tenant
+app.delete('/api/tenants/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const tenant = await db.deleteTenant(parseInt(req.params.id));
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    res.json({ message: 'Tenant deleted', tenant });
+  } catch (error) {
+    console.error('Error deleting tenant:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET tenant API keys (masked) - accessible to super admin or tenant admin for own tenant
+app.get('/api/tenants/:id/api-keys', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const tenantIdParam = parseInt(req.params.id);
+
+    // Tenant admin can only view own tenant's keys
+    if (!isSuperAdmin(req) && req.user.tenantId !== tenantIdParam) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const keys = await db.getTenantApiKeys(tenantIdParam);
+    if (!keys) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Mask keys for display
+    const maskKey = (key) => {
+      if (!key) return null;
+      if (key.length <= 10) return '****';
+      return key.substring(0, 6) + '...' + key.substring(key.length - 4);
+    };
+
+    res.json({
+      id: keys.id,
+      front_api_key_masked: maskKey(keys.front_api_key),
+      front_api_key_individuals_masked: maskKey(keys.front_api_key_individuals),
+      front_endpoint: keys.front_endpoint,
+      has_api_key: !!keys.front_api_key,
+      has_api_key_individuals: !!keys.front_api_key_individuals
+    });
+  } catch (error) {
+    console.error('Error getting tenant API keys:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// UPDATE tenant API keys - accessible to super admin or tenant admin for own tenant
+app.put('/api/tenants/:id/api-keys', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const tenantIdParam = parseInt(req.params.id);
+
+    // Tenant admin can only update own tenant's keys
+    if (!isSuperAdmin(req) && req.user.tenantId !== tenantIdParam) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { front_api_key, front_api_key_individuals, front_endpoint } = req.body;
+    const tenant = await db.setTenantApiKeys(
+      tenantIdParam,
+      front_api_key,
+      front_api_key_individuals,
+      front_endpoint || 'https://api2.frontapp.com/analytics/reports'
+    );
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    res.json({ message: 'API keys updated successfully' });
+  } catch (error) {
+    console.error('Error updating tenant API keys:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==========================================
+// CACHED DATA ENDPOINTS (Tenant-Scoped)
+// ==========================================
+
 /**
  * Endpoint para obtener datos cacheados
  * GET /getCachedData?department=Concierge&range=thisWeek
  */
-app.get('/getCachedData', requireAuth, (req, res) => {
+app.get('/getCachedData', requireAuth, async (req, res) => {
   try {
     const { department, range } = req.query;
 
@@ -384,7 +574,19 @@ app.get('/getCachedData', requireAuth, (req, res) => {
       });
     }
 
-    const filename = `${department.toLowerCase().replace(/\s+/g, '-')}_${range}.json`;
+    // Get tenant slug for cache file prefix
+    const tenantId = getEffectiveTenantId(req);
+    let tenantSlug = '';
+
+    if (tenantId) {
+      const tenant = await db.getTenantById(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+      tenantSlug = tenant.slug;
+    }
+
+    const filename = `${tenantSlug}_${department.toLowerCase().replace(/\s+/g, '-')}_${range}.json`;
     const filepath = path.join(CACHE_DIR, filename);
 
     if (!fs.existsSync(filepath)) {
@@ -416,13 +618,24 @@ app.get('/getCachedData', requireAuth, (req, res) => {
  * Endpoint para listar caches disponibles
  * GET /listCaches
  */
-app.get('/listCaches', requireAuth, (req, res) => {
+app.get('/listCaches', requireAuth, async (req, res) => {
   try {
     if (!fs.existsSync(CACHE_DIR)) {
       return res.status(200).json({ caches: [] });
     }
 
-    const files = fs.readdirSync(CACHE_DIR).filter(f => f.endsWith('.json'));
+    // Get tenant slug for filtering
+    const tenantId = getEffectiveTenantId(req);
+    let tenantSlug = '';
+
+    if (tenantId) {
+      const tenant = await db.getTenantById(tenantId);
+      if (tenant) tenantSlug = tenant.slug;
+    }
+
+    const files = fs.readdirSync(CACHE_DIR)
+      .filter(f => f.endsWith('.json') && f.startsWith(`${tenantSlug}_`));
+
     const caches = files.map(filename => {
       const filepath = path.join(CACHE_DIR, filename);
       const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
@@ -443,6 +656,10 @@ app.get('/listCaches', requireAuth, (req, res) => {
   }
 });
 
+// ==========================================
+// DATA ENDPOINTS (Tenant-Scoped)
+// ==========================================
+
 app.post('/getData', requireAuth, async (req, res) => {
   try {
     const { timestampStart, timestampEnd, registros } = req.body;
@@ -455,12 +672,20 @@ app.post('/getData', requireAuth, async (req, res) => {
       });
     }
 
+    // Load tenant API keys
+    const tenantId = getEffectiveTenantId(req);
+    const tenantKeys = tenantId ? await db.getTenantApiKeys(tenantId) : null;
+
+    if (!tenantKeys || !tenantKeys.front_api_key) {
+      return res.status(400).json({ error: 'Front API key not configured for this tenant' });
+    }
+
     console.log('Received data:', { timestampStart, timestampEnd, registros });
 
     // Store API responses
     const apiResponses = [];
 
-    // Iterate over registros with a 2-second delay
+    // Iterate over registros with a delay
     for (const [index, record] of registros.entries()) {
       console.log(`Processing record ${index + 1} at ${new Date().toISOString()}:`, record);
 
@@ -479,18 +704,18 @@ app.post('/getData', requireAuth, async (req, res) => {
         ],
       };
 
-      // Call FRONT API with retries
-      const result = await callFrontApi(requestBody, index + 1, false);
+      // Call FRONT API with tenant's API key
+      const result = await callFrontApi(requestBody, index + 1, tenantKeys.front_api_key, tenantKeys.front_endpoint);
       apiResponses.push({
         recordIndex: index + 1,
         record,
         ...result,
       });
 
-      // Wait 2 seconds before the next record (except after the last one)
+      // Wait before the next record (except after the last one)
       if (index < registros.length - 1) {
         console.log(`Waiting 2 seconds before processing next record...`);
-        await delay(3000); // Corrected to 2 seconds
+        await delay(3000);
       }
     }
 
@@ -521,6 +746,14 @@ app.post('/getDataIndividuals', requireAuth, async (req, res) => {
       });
     }
 
+    // Load tenant API keys
+    const tenantId = getEffectiveTenantId(req);
+    const tenantKeys = tenantId ? await db.getTenantApiKeys(tenantId) : null;
+
+    if (!tenantKeys || !tenantKeys.front_api_key_individuals) {
+      return res.status(400).json({ error: 'Front Individual API key not configured for this tenant' });
+    }
+
     const apiResponses = [];
 
     for (const [index, record] of inboxes.entries()) {
@@ -539,8 +772,8 @@ app.post('/getDataIndividuals', requireAuth, async (req, res) => {
         ],
       };
 
-      // Llamar a la API con reintentos
-      const result = await callFrontApi(requestBody, index + 1, true);
+      // Llamar a la API con tenant's individual API key
+      const result = await callFrontApi(requestBody, index + 1, tenantKeys.front_api_key_individuals, tenantKeys.front_endpoint);
       apiResponses.push({
         recordIndex: index + 1,
         record,
@@ -550,7 +783,7 @@ app.post('/getDataIndividuals', requireAuth, async (req, res) => {
       // Espera antes de procesar el siguiente registro (si no es el último)
       if (index < inboxes.length - 1) {
         console.log(`Waiting 2 seconds before processing next record...`);
-        await delay(3000); // Nota: Comentario corregido, aquí espera 5 segundos
+        await delay(3000);
       }
     }
 
@@ -572,20 +805,20 @@ app.post('/getDataIndividuals', requireAuth, async (req, res) => {
 });
 
 
-// Function to call FRONT API with retries
-async function callFrontApi(requestBody, recordIndex, isIndividual) {
+// Function to call FRONT API with retries (now takes apiKey and endpoint as params)
+async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
   const maxRetries = 10;
   let retries = 0;
-  const API_KEY_TO_USE = (isIndividual) ? FRONT_API_KEY_INDIVIDUALS : FRONT_API_KEY;
+
   while (retries < maxRetries) {
     try {
       console.log(`Attempt ${retries + 1} for record ${recordIndex}:`, requestBody);
-      const frontResponse = await fetch(ENDPOINT, {
+      const frontResponse = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          Authorization: API_KEY_TO_USE,
+          Authorization: apiKey,
         },
         body: JSON.stringify(requestBody),
       });
@@ -603,11 +836,11 @@ async function callFrontApi(requestBody, recordIndex, isIndividual) {
         return { apiData: responseData };
       }
 
-      // Status is not 'done', retry after 2 seconds
+      // Status is not 'done', retry after delay
       console.log(`Record ${recordIndex} status is "${responseData.status}", retrying after 2 seconds...`);
       retries++;
       if (retries < maxRetries) {
-        await delay(3000); // 2 seconds between retries
+        await delay(3000);
       }
     } catch (error) {
       console.error(`Error calling FRONT API for record ${recordIndex} (attempt ${retries + 1}):`, error.message);
@@ -621,13 +854,17 @@ async function callFrontApi(requestBody, recordIndex, isIndividual) {
 }
 
 // ==========================================
-// API ENDPOINTS - INBOXES
+// API ENDPOINTS - INBOXES (Tenant-Scoped)
 // ==========================================
 
 // GET all inboxes
 app.get('/api/inboxes', requireAuth, async (req, res) => {
   try {
-    const inboxes = await db.getAllInboxes();
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const inboxes = await db.getAllInboxes(tenantId);
     res.json(inboxes);
   } catch (error) {
     console.error('Error getting inboxes:', error);
@@ -638,7 +875,11 @@ app.get('/api/inboxes', requireAuth, async (req, res) => {
 // GET single inbox
 app.get('/api/inboxes/:id', requireAuth, async (req, res) => {
   try {
-    const inbox = await db.getInboxById(parseInt(req.params.id));
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const inbox = await db.getInboxById(parseInt(req.params.id), tenantId);
     if (!inbox) {
       return res.status(404).json({ error: 'Inbox not found' });
     }
@@ -652,11 +893,15 @@ app.get('/api/inboxes/:id', requireAuth, async (req, res) => {
 // CREATE inbox (Admin only)
 app.post('/api/inboxes', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
     const { code, name, description } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'Code and name are required' });
     }
-    const inbox = await db.createInbox(code, name, description);
+    const inbox = await db.createInbox(code, name, description, tenantId);
     res.status(201).json(inbox);
   } catch (error) {
     console.error('Error creating inbox:', error);
@@ -670,11 +915,15 @@ app.post('/api/inboxes', requireAuth, requireAdmin, async (req, res) => {
 // UPDATE inbox (Admin only)
 app.put('/api/inboxes/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
     const { code, name, description } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'Code and name are required' });
     }
-    const inbox = await db.updateInbox(parseInt(req.params.id), code, name, description);
+    const inbox = await db.updateInbox(parseInt(req.params.id), code, name, description, tenantId);
     if (!inbox) {
       return res.status(404).json({ error: 'Inbox not found' });
     }
@@ -688,7 +937,11 @@ app.put('/api/inboxes/:id', requireAuth, requireAdmin, async (req, res) => {
 // DELETE inbox (Admin only)
 app.delete('/api/inboxes/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const inbox = await db.deleteInbox(parseInt(req.params.id));
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const inbox = await db.deleteInbox(parseInt(req.params.id), tenantId);
     if (!inbox) {
       return res.status(404).json({ error: 'Inbox not found' });
     }
@@ -700,13 +953,17 @@ app.delete('/api/inboxes/:id', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ==========================================
-// API ENDPOINTS - USERS
+// API ENDPOINTS - USERS (Tenant-Scoped)
 // ==========================================
 
 // GET all users
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
-    const users = await db.getAllUsers();
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const users = await db.getAllUsers(tenantId);
     res.json(users);
   } catch (error) {
     console.error('Error getting users:', error);
@@ -717,7 +974,11 @@ app.get('/api/users', requireAuth, async (req, res) => {
 // GET single user
 app.get('/api/users/:id', requireAuth, async (req, res) => {
   try {
-    const user = await db.getUserById(parseInt(req.params.id));
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const user = await db.getUserById(parseInt(req.params.id), tenantId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -731,11 +992,15 @@ app.get('/api/users/:id', requireAuth, async (req, res) => {
 // CREATE user (Admin only)
 app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
     const { teammate_id, email, name, is_individual } = req.body;
     if (!teammate_id || !email || !name) {
       return res.status(400).json({ error: 'teammate_id, email and name are required' });
     }
-    const user = await db.createUser(teammate_id, email, name, is_individual || false);
+    const user = await db.createUser(teammate_id, email, name, is_individual || false, tenantId);
     res.status(201).json(user);
   } catch (error) {
     console.error('Error creating user:', error);
@@ -749,11 +1014,15 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
 // UPDATE user (Admin only)
 app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
     const { teammate_id, email, name, is_individual } = req.body;
     if (!teammate_id || !email || !name) {
       return res.status(400).json({ error: 'teammate_id, email and name are required' });
     }
-    const user = await db.updateUser(parseInt(req.params.id), teammate_id, email, name, is_individual);
+    const user = await db.updateUser(parseInt(req.params.id), teammate_id, email, name, is_individual, tenantId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -767,7 +1036,11 @@ app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 // DELETE user (Admin only)
 app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const user = await db.deleteUser(parseInt(req.params.id));
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const user = await db.deleteUser(parseInt(req.params.id), tenantId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -785,6 +1058,14 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 // GET users by inbox
 app.get('/api/inboxes/:id/users', requireAuth, async (req, res) => {
   try {
+    // Verify inbox belongs to tenant
+    const tenantId = getEffectiveTenantId(req);
+    if (tenantId) {
+      const inbox = await db.getInboxById(parseInt(req.params.id), tenantId);
+      if (!inbox) {
+        return res.status(404).json({ error: 'Inbox not found' });
+      }
+    }
     const users = await db.getUsersByInbox(parseInt(req.params.id));
     res.json(users);
   } catch (error) {
@@ -828,13 +1109,17 @@ app.delete('/api/inboxes/:inboxId/users/:userId', requireAuth, requireAdmin, asy
 });
 
 // ==========================================
-// API ENDPOINTS - DATA FOR ANALYTICS (using DB)
+// API ENDPOINTS - DATA FOR ANALYTICS (Tenant-Scoped)
 // ==========================================
 
-// GET users by inbox name (for analytics - replaces JSON file)
+// GET users by inbox name (for analytics)
 app.get('/api/analytics/inbox/:inboxName', requireAuth, async (req, res) => {
   try {
-    const users = await db.getUsersByInboxName(req.params.inboxName);
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const users = await db.getUsersByInboxName(req.params.inboxName, tenantId);
     res.json(users);
   } catch (error) {
     console.error('Error getting inbox users for analytics:', error);
@@ -842,10 +1127,14 @@ app.get('/api/analytics/inbox/:inboxName', requireAuth, async (req, res) => {
   }
 });
 
-// GET individual users (for analytics - replaces JSON file)
+// GET individual users (for analytics)
 app.get('/api/analytics/individuals', requireAuth, async (req, res) => {
   try {
-    const users = await db.getIndividualUsers();
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    const users = await db.getIndividualUsers(tenantId);
     res.json(users);
   } catch (error) {
     console.error('Error getting individual users:', error);
@@ -854,17 +1143,25 @@ app.get('/api/analytics/individuals', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// FRONT API - TEAMMATES
+// FRONT API - TEAMMATES (Tenant-Scoped)
 // ==========================================
 
 // GET all teammates from Front API (Admin only)
 app.get('/api/front/teammates', requireAuth, requireAdmin, async (req, res) => {
   try {
+    // Load tenant's API keys
+    const tenantId = getEffectiveTenantId(req);
+    const tenantKeys = tenantId ? await db.getTenantApiKeys(tenantId) : null;
+
+    if (!tenantKeys || !tenantKeys.front_api_key_individuals) {
+      return res.status(400).json({ error: 'Front Individual API key not configured for this tenant' });
+    }
+
     const response = await fetch('https://api2.frontapp.com/teammates', {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': FRONT_API_KEY_INDIVIDUALS
+        'Authorization': tenantKeys.front_api_key_individuals
       }
     });
 
@@ -896,12 +1193,19 @@ app.get('/api/front/teammates', requireAuth, requireAdmin, async (req, res) => {
 // GET all channels (shared inboxes) from Front API (Admin only)
 app.get('/api/front/channels', requireAuth, requireAdmin, async (req, res) => {
   try {
-    // Use FRONT_API_KEY (shared scope) to get shared channels
+    // Load tenant's API keys
+    const tenantId = getEffectiveTenantId(req);
+    const tenantKeys = tenantId ? await db.getTenantApiKeys(tenantId) : null;
+
+    if (!tenantKeys || !tenantKeys.front_api_key) {
+      return res.status(400).json({ error: 'Front API key not configured for this tenant' });
+    }
+
     const response = await fetch('https://api2.frontapp.com/channels', {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': FRONT_API_KEY
+        'Authorization': tenantKeys.front_api_key
       }
     });
 
@@ -912,7 +1216,7 @@ app.get('/api/front/channels', requireAuth, requireAdmin, async (req, res) => {
 
     const data = await response.json();
 
-    // Transform channels (all from shared API are public)
+    // Transform channels
     const channels = data._results.map(c => ({
       id: c.id,
       name: c.name,
@@ -928,13 +1232,15 @@ app.get('/api/front/channels', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ==========================================
-// API ENDPOINTS - SYSTEM USERS (Admin only)
+// API ENDPOINTS - SYSTEM USERS (Scoped)
 // ==========================================
 
 // GET all system users
 app.get('/api/system-users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const users = await db.getAllSystemUsers();
+    // Super admin sees all, tenant admin sees own tenant
+    const tenantId = isSuperAdmin(req) ? null : getEffectiveTenantId(req);
+    const users = await db.getAllSystemUsers(tenantId);
     res.json(users);
   } catch (error) {
     console.error('Error getting system users:', error);
@@ -949,6 +1255,10 @@ app.get('/api/system-users/:id', requireAuth, requireAdmin, async (req, res) => 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+    // Tenant admin can only see users in their tenant
+    if (!isSuperAdmin(req) && user.tenant_id !== getEffectiveTenantId(req)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     res.json(user);
   } catch (error) {
     console.error('Error getting system user:', error);
@@ -959,14 +1269,31 @@ app.get('/api/system-users/:id', requireAuth, requireAdmin, async (req, res) => 
 // CREATE system user
 app.post('/api/system-users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { email, name, role } = req.body;
+    const { email, name, role, tenant_id } = req.body;
     if (!email || !name) {
       return res.status(400).json({ error: 'Email and name are required' });
     }
-    if (role && !['admin', 'user'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be "admin" or "user"' });
+
+    // Determine allowed roles and tenant assignment
+    let assignedRole = role || 'user';
+    let assignedTenantId;
+
+    if (isSuperAdmin(req)) {
+      // Super admin can create any role and assign to any tenant
+      if (!['admin', 'user', 'super_admin'].includes(assignedRole)) {
+        return res.status(400).json({ error: 'Role must be "admin", "user", or "super_admin"' });
+      }
+      // super_admin has null tenant_id
+      assignedTenantId = assignedRole === 'super_admin' ? null : (tenant_id || null);
+    } else {
+      // Tenant admin can only create admin/user within their tenant
+      if (!['admin', 'user'].includes(assignedRole)) {
+        return res.status(400).json({ error: 'Role must be "admin" or "user"' });
+      }
+      assignedTenantId = getEffectiveTenantId(req);
     }
-    const user = await db.createSystemUser(email, name, role || 'user');
+
+    const user = await db.createSystemUser(email, name, assignedRole, null, assignedTenantId);
     res.status(201).json(user);
   } catch (error) {
     if (error.code === '23505') {
@@ -980,7 +1307,25 @@ app.post('/api/system-users', requireAuth, requireAdmin, async (req, res) => {
 // UPDATE system user
 app.put('/api/system-users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { email, name, role, is_active } = req.body;
+    const { email, name, role, is_active, tenant_id } = req.body;
+
+    // Validate role based on who's editing
+    if (isSuperAdmin(req)) {
+      if (role && !['admin', 'user', 'super_admin'].includes(role)) {
+        return res.status(400).json({ error: 'Role must be "admin", "user", or "super_admin"' });
+      }
+    } else {
+      // Tenant admin can't promote to super_admin
+      if (role === 'super_admin') {
+        return res.status(403).json({ error: 'Cannot assign super_admin role' });
+      }
+      // Tenant admin can only edit users in their tenant
+      const existingUser = await db.getSystemUserById(parseInt(req.params.id));
+      if (!existingUser || existingUser.tenant_id !== getEffectiveTenantId(req)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     const user = await db.updateSystemUser(
       parseInt(req.params.id),
       email,
@@ -991,6 +1336,13 @@ app.put('/api/system-users/:id', requireAuth, requireAdmin, async (req, res) => 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    // Super admin can change tenant assignment
+    if (isSuperAdmin(req) && tenant_id !== undefined) {
+      const newTenantId = role === 'super_admin' ? null : tenant_id;
+      await db.updateSystemUserTenant(user.id, newTenantId);
+    }
+
     res.json(user);
   } catch (error) {
     console.error('Error updating system user:', error);
@@ -1005,6 +1357,15 @@ app.delete('/api/system-users/:id', requireAuth, requireAdmin, async (req, res) 
     if (parseInt(req.params.id) === req.user.id) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
+
+    // Tenant admin can only delete users in their tenant
+    if (!isSuperAdmin(req)) {
+      const existingUser = await db.getSystemUserById(parseInt(req.params.id));
+      if (!existingUser || existingUser.tenant_id !== getEffectiveTenantId(req)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     const user = await db.deleteSystemUser(parseInt(req.params.id));
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -1025,11 +1386,19 @@ app.get('/api/front/teammates/search', requireAuth, requireAdmin, async (req, re
       return res.status(400).json({ error: 'Email parameter is required' });
     }
 
+    // Load tenant's API keys
+    const tenantId = getEffectiveTenantId(req);
+    const tenantKeys = tenantId ? await db.getTenantApiKeys(tenantId) : null;
+
+    if (!tenantKeys || !tenantKeys.front_api_key_individuals) {
+      return res.status(400).json({ error: 'Front Individual API key not configured for this tenant' });
+    }
+
     const response = await fetch('https://api2.frontapp.com/teammates', {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': FRONT_API_KEY_INDIVIDUALS
+        'Authorization': tenantKeys.front_api_key_individuals
       }
     });
 

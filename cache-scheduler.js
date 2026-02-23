@@ -185,9 +185,10 @@ async function getIndividualUsersFromDB(tenantId) {
 
 /**
  * Llama a la API de Front con reintentos (parameterized API key + endpoint)
+ * Uses progressive backoff: waits longer on each retry for large reports.
  */
 async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
-  const maxRetries = 10;
+  const maxRetries = 25;
   let retries = 0;
 
   while (retries < maxRetries) {
@@ -204,9 +205,9 @@ async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
 
       if (response.status === 429) {
         const errorData = await response.json();
-        const waitTime = parseInt(errorData._error?.message?.match(/\d+/)?.[0] || 3000);
+        const waitTime = parseInt(errorData._error?.message?.match(/\d+/)?.[0] || 5000);
         console.log(`  Rate limited. Waiting ${waitTime}ms...`);
-        await delay(waitTime + 500);
+        await delay(waitTime + 1000);
         retries++;
         continue;
       }
@@ -221,10 +222,11 @@ async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
         return { apiData: data };
       }
 
-      // Status pending/running, retry
+      // Status pending/running, retry with progressive backoff
       retries++;
       if (retries < maxRetries) {
-        await delay(2500);
+        const waitMs = Math.min(2500 + (retries * 500), 8000);
+        await delay(waitMs);
       }
     } catch (error) {
       console.error(`  Error for record ${recordIndex}:`, error.message);
@@ -236,9 +238,10 @@ async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
 }
 
 /**
- * Pre-calcula métricas para un departamento y rango
+ * Pre-calcula métricas para un departamento y rango.
+ * If existingCache is provided, only retries failed records and merges with existing successes.
  */
-async function precalculateDepartment(departmentName, rangeName, apiKey, endpoint, tenantId) {
+async function precalculateDepartment(departmentName, rangeName, apiKey, endpoint, tenantId, existingCache = null) {
   const range = getDateRange(rangeName);
   const users = await getUsersByDepartment(departmentName, tenantId);
 
@@ -247,11 +250,32 @@ async function precalculateDepartment(departmentName, rangeName, apiKey, endpoin
     return null;
   }
 
-  console.log(`  Processing ${users.length} users for ${departmentName} - ${range.label}`);
+  // Build a map of existing successful results to avoid re-fetching them
+  const existingSuccessMap = new Map();
+  if (existingCache && existingCache.apiResponses) {
+    for (const resp of existingCache.apiResponses) {
+      if (resp.apiData && resp.apiData.metrics && resp.record) {
+        existingSuccessMap.set(resp.record.id, resp);
+      }
+    }
+  }
+
+  const failedCount = users.length - existingSuccessMap.size;
+  if (existingCache) {
+    console.log(`  Retrying ${failedCount} failed of ${users.length} users for ${departmentName} - ${range.label}`);
+  } else {
+    console.log(`  Processing ${users.length} users for ${departmentName} - ${range.label}`);
+  }
 
   const apiResponses = [];
 
   for (const [index, user] of users.entries()) {
+    // Reuse existing successful result
+    if (existingSuccessMap.has(user.id)) {
+      apiResponses.push(existingSuccessMap.get(user.id));
+      continue;
+    }
+
     console.log(`    [${index + 1}/${users.length}] ${user.name}`);
 
     const requestBody = {
@@ -274,7 +298,7 @@ async function precalculateDepartment(departmentName, rangeName, apiKey, endpoin
 
     // Delay entre llamadas
     if (index < users.length - 1) {
-      await delay(2200);
+      await delay(2500);
     }
   }
 
@@ -291,9 +315,10 @@ async function precalculateDepartment(departmentName, rangeName, apiKey, endpoin
 }
 
 /**
- * Pre-calcula métricas para todos los usuarios individuales en un rango
+ * Pre-calcula métricas para todos los usuarios individuales en un rango.
+ * If existingCache is provided, only retries failed records and merges with existing successes.
  */
-async function precalculateIndividuals(rangeName, apiKey, endpoint, tenantId) {
+async function precalculateIndividuals(rangeName, apiKey, endpoint, tenantId, existingCache = null) {
   const range = getDateRange(rangeName);
   const users = await getIndividualUsersFromDB(tenantId);
 
@@ -302,11 +327,32 @@ async function precalculateIndividuals(rangeName, apiKey, endpoint, tenantId) {
     return null;
   }
 
-  console.log(`  Processing ${users.length} individual users - ${range.label}`);
+  // Build a map of existing successful results to avoid re-fetching them
+  const existingSuccessMap = new Map();
+  if (existingCache && existingCache.apiResponses) {
+    for (const resp of existingCache.apiResponses) {
+      if (resp.apiData && resp.apiData.metrics && resp.record) {
+        existingSuccessMap.set(resp.record.id, resp);
+      }
+    }
+  }
+
+  const failedCount = users.length - existingSuccessMap.size;
+  if (existingCache) {
+    console.log(`  Retrying ${failedCount} failed of ${users.length} individual users - ${range.label}`);
+  } else {
+    console.log(`  Processing ${users.length} individual users - ${range.label}`);
+  }
 
   const apiResponses = [];
 
   for (const [index, user] of users.entries()) {
+    // Reuse existing successful result
+    if (existingSuccessMap.has(user.id)) {
+      apiResponses.push(existingSuccessMap.get(user.id));
+      continue;
+    }
+
     console.log(`    [${index + 1}/${users.length}] ${user.name}`);
 
     const requestBody = {
@@ -328,7 +374,7 @@ async function precalculateIndividuals(rangeName, apiKey, endpoint, tenantId) {
 
     // Delay entre llamadas
     if (index < users.length - 1) {
-      await delay(2200);
+      await delay(2500);
     }
   }
 
@@ -385,9 +431,10 @@ function hasCacheErrors(cachedData) {
 function needsUpdate(rangeName, cachedData) {
   if (!cachedData) return true;
 
-  // Force update if cache has errors
+  // Force update if cache has errors (will retry only failed records)
   if (hasCacheErrors(cachedData)) {
-    console.log(`  Cache has errors, forcing regeneration`);
+    const errorCount = cachedData.apiResponses.filter(r => r.error || !r.apiData).length;
+    console.log(`  Cache has ${errorCount} errors, will retry failed records`);
     return true;
   }
 
@@ -464,13 +511,15 @@ async function runPrecalculation(forceAll = false) {
             continue;
           }
 
-          console.log(`    ${rangeName}: Fetching fresh data...`);
+          const isRetry = cached && hasCacheErrors(cached);
+          console.log(`    ${rangeName}: ${isRetry ? 'Retrying failed records...' : 'Fetching fresh data...'}`);
 
           try {
-            const data = await precalculateDepartment(department, rangeName, apiKey, endpoint, tenant.id);
+            const data = await precalculateDepartment(department, rangeName, apiKey, endpoint, tenant.id, isRetry ? cached : null);
             if (data) {
               saveToCache(tenant.slug, department, rangeName, data);
-              console.log(`    ${rangeName}: Done`);
+              const errors = data.apiResponses.filter(r => r.error).length;
+              console.log(`    ${rangeName}: Done (${data.totalRecords - errors}/${data.totalRecords} successful)`);
             }
           } catch (error) {
             console.error(`    ${rangeName}: Error - ${error.message}`);
@@ -495,13 +544,15 @@ async function runPrecalculation(forceAll = false) {
           continue;
         }
 
-        console.log(`    ${rangeName}: Fetching fresh data...`);
+        const isRetry = cached && hasCacheErrors(cached);
+        console.log(`    ${rangeName}: ${isRetry ? 'Retrying failed records...' : 'Fetching fresh data...'}`);
 
         try {
-          const data = await precalculateIndividuals(rangeName, apiKeyIndividuals, endpoint, tenant.id);
+          const data = await precalculateIndividuals(rangeName, apiKeyIndividuals, endpoint, tenant.id, isRetry ? cached : null);
           if (data) {
             saveToCache(tenant.slug, 'individuals', rangeName, data);
-            console.log(`    ${rangeName}: Done`);
+            const errors = data.apiResponses.filter(r => r.error).length;
+            console.log(`    ${rangeName}: Done (${data.totalRecords - errors}/${data.totalRecords} successful)`);
           }
         } catch (error) {
           console.error(`    ${rangeName}: Error - ${error.message}`);

@@ -1430,6 +1430,23 @@ app.get('/api/front/teammates/search', requireAuth, requireAdmin, async (req, re
   }
 });
 
+// Trigger cache regeneration (Super Admin only)
+app.post('/api/cache/regenerate', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const cacheScheduler = require('./cache-scheduler');
+    res.json({ message: 'Cache regeneration started. This may take several minutes.' });
+    // Run in background (don't await)
+    cacheScheduler.runPrecalculation(req.body.force || false).then(() => {
+      console.log('Manual cache regeneration completed');
+    }).catch(err => {
+      console.error('Manual cache regeneration failed:', err);
+    });
+  } catch (error) {
+    console.error('Error triggering cache regeneration:', error);
+    res.status(500).json({ error: 'Failed to start cache regeneration' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 

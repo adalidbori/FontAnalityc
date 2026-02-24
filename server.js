@@ -13,8 +13,8 @@ const db = require('./db');
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Cache directory
-const CACHE_DIR = path.join(__dirname, 'cache');
+// Cache directory (configurable for Azure App Service)
+const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'cache');
 
 // Asegurar que existe el directorio de cache
 if (!fs.existsSync(CACHE_DIR)) {

@@ -600,11 +600,81 @@ function scheduleJobs() {
   }, checkInterval);
 }
 
+/**
+ * Borra archivos de cache específicos y re-sincroniza desde la API de Front.
+ * @param {number} tenantId - ID del tenant
+ * @param {Array<{department: string, range: string}>} items - Items a regenerar
+ * @returns {Array<{department, range, status, error?}>} Resultados por item
+ */
+async function regenerateSpecific(tenantId, items) {
+  const tenant = await db.getTenantById(tenantId);
+  if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
+
+  const keys = await db.getTenantApiKeys(tenantId);
+  if (!keys || !keys.front_api_key) throw new Error('No Front API key configured for tenant');
+
+  const apiKey = keys.front_api_key;
+  const apiKeyIndividuals = keys.front_api_key_individuals;
+  const endpoint = keys.front_endpoint || 'https://api2.frontapp.com/analytics/reports';
+
+  console.log(`\n[regenerateSpecific] Tenant: ${tenant.name} (${tenant.slug}), ${items.length} item(s)`);
+
+  const results = [];
+
+  for (const [idx, item] of items.entries()) {
+    const { department, range } = item;
+    console.log(`  [${idx + 1}/${items.length}] ${department} - ${range}`);
+
+    // Delete existing cache file from disk
+    const filename = `${tenant.slug}_${department.toLowerCase().replace(/\s+/g, '-')}_${range}.json`;
+    const filepath = path.join(CACHE_DIR, filename);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+      console.log(`    Deleted: ${filename}`);
+    }
+
+    try {
+      let data;
+      if (department === 'individuals') {
+        if (!apiKeyIndividuals) {
+          results.push({ department, range, status: 'error', error: 'No individual API key configured' });
+          continue;
+        }
+        data = await precalculateIndividuals(range, apiKeyIndividuals, endpoint, tenantId, null);
+      } else {
+        data = await precalculateDepartment(department, range, apiKey, endpoint, tenantId, null);
+      }
+
+      if (data) {
+        saveToCache(tenant.slug, department, range, data);
+        const errors = data.apiResponses.filter(r => r.error).length;
+        const status = errors === 0 ? 'success' : (errors < data.totalRecords ? 'partial' : 'error');
+        results.push({ department, range, status, totalRecords: data.totalRecords, errors });
+        console.log(`    Done: ${data.totalRecords - errors}/${data.totalRecords} successful`);
+      } else {
+        results.push({ department, range, status: 'error', error: 'No data returned (no users found?)' });
+      }
+    } catch (error) {
+      console.error(`    Error: ${error.message}`);
+      results.push({ department, range, status: 'error', error: error.message });
+    }
+
+    // Delay between items
+    if (idx < items.length - 1) {
+      await delay(3000);
+    }
+  }
+
+  console.log(`[regenerateSpecific] Complete. ${results.filter(r => r.status === 'success').length}/${results.length} fully successful.`);
+  return results;
+}
+
 // Exportar funciones para uso externo
 module.exports = {
   getDateRange,
   readFromCache,
   runPrecalculation,
+  regenerateSpecific,
   scheduleJobs,
   getDepartmentsForTenant,
   RANGES,

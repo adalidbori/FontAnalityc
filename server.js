@@ -1451,6 +1451,44 @@ app.post('/api/cache/regenerate', requireAuth, requireSuperAdmin, async (req, re
   }
 });
 
+// Delete specific cache files and resync from Front API (Super Admin only)
+app.post('/api/cache/delete-and-sync', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant context required. Use ?tenantId=X query parameter.' });
+    }
+
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items array is required and must not be empty.' });
+    }
+
+    const validRanges = ['yesterday', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth'];
+    for (const item of items) {
+      if (!item.department || typeof item.department !== 'string') {
+        return res.status(400).json({ error: 'Each item must have a department string.' });
+      }
+      if (!item.range || !validRanges.includes(item.range)) {
+        return res.status(400).json({ error: `Invalid range "${item.range}". Valid: ${validRanges.join(', ')}` });
+      }
+    }
+
+    // Respond immediately, run in background
+    res.json({ message: `Delete & resync started for ${items.length} item(s). This runs in the background.` });
+
+    const cacheScheduler = require('./cache-scheduler');
+    cacheScheduler.regenerateSpecific(tenantId, items).then(results => {
+      console.log('Selective cache resync completed:', results);
+    }).catch(err => {
+      console.error('Selective cache resync failed:', err);
+    });
+  } catch (error) {
+    console.error('Error triggering selective cache resync:', error);
+    res.status(500).json({ error: 'Failed to start selective cache resync' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 

@@ -116,6 +116,60 @@
       box-shadow: var(--shadow-glow);
     }
 
+    .cache-action-bar {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+    }
+
+    .cache-action-bar.visible {
+      display: flex;
+    }
+
+    .cache-action-bar .selection-count {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .btn-delete-sync {
+      background: var(--danger-color, #ef4444);
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.825rem;
+      transition: all var(--transition-fast);
+    }
+
+    .btn-delete-sync:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+
+    .btn-delete-sync:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .cache-checkbox {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: var(--accent-primary);
+    }
+
     .admin-table {
       width: 100%;
       border-collapse: separate;
@@ -604,6 +658,15 @@
                 </button>
                 <button class="btn-add" style="background: var(--warning-color);" id="btn-cache-force" onclick="regenerateCache(true)">
                   <i class="fas fa-sync-alt"></i> Force Regenerate All
+                </button>
+              </div>
+              <div id="cache-action-bar" class="cache-action-bar">
+                <span class="selection-count"><span id="cache-selected-count">0</span> selected</span>
+                <button class="btn-delete-sync" id="btn-delete-sync" onclick="deleteAndSyncSelected()">
+                  <i class="fas fa-trash-alt"></i> Delete & Resync Selected
+                </button>
+                <button class="btn-add" style="background: var(--bg-tertiary); color: var(--text-primary); padding: 8px 14px; font-size: 0.825rem;" onclick="clearCacheSelection()">
+                  Clear Selection
                 </button>
               </div>
               <div id="cache-status" style="display: none; padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-md); margin-bottom: 20px;">
@@ -2096,13 +2159,17 @@
 
         if (!data.caches || data.caches.length === 0) {
           container.innerHTML = '<p style="color: var(--text-muted);">No cache files found.</p>';
+          updateCacheActionBar();
           return;
         }
 
         container.innerHTML = `
-          <table class="admin-table">
+          <table class="admin-table" id="cache-table">
             <thead>
               <tr>
+                <th style="width: 40px; text-align: center;">
+                  <input type="checkbox" class="cache-checkbox" id="cache-select-all" onchange="toggleAllCacheCheckboxes(this.checked)">
+                </th>
                 <th>Department</th>
                 <th>Range</th>
                 <th>Records</th>
@@ -2116,6 +2183,9 @@
                 const statusClass = errors > 0 ? 'color: var(--danger-color);' : 'color: var(--success-color);';
                 return `
                   <tr>
+                    <td style="text-align: center;">
+                      <input type="checkbox" class="cache-checkbox cache-item-check" data-department="${c.department}" data-range="${c.range}" onchange="updateCacheActionBar()">
+                    </td>
                     <td class="fw-medium">${c.department}</td>
                     <td>${c.rangeLabel || c.range}</td>
                     <td class="text-center">${c.totalRecords}</td>
@@ -2127,6 +2197,7 @@
             </tbody>
           </table>
         `;
+        updateCacheActionBar();
       } catch (error) {
         container.innerHTML = `<p style="color: var(--danger-color);">Error loading cache files: ${error.message}</p>`;
       }
@@ -2166,6 +2237,115 @@
       } finally {
         btnRetry.disabled = false;
         btnForce.disabled = false;
+      }
+    }
+
+    function getSelectedCacheItems() {
+      const checkboxes = document.querySelectorAll('.cache-item-check:checked');
+      return Array.from(checkboxes).map(cb => ({
+        department: cb.dataset.department,
+        range: cb.dataset.range
+      }));
+    }
+
+    function updateCacheActionBar() {
+      const actionBar = document.getElementById('cache-action-bar');
+      const countSpan = document.getElementById('cache-selected-count');
+      const selected = getSelectedCacheItems();
+      const allCheckboxes = document.querySelectorAll('.cache-item-check');
+      const selectAll = document.getElementById('cache-select-all');
+
+      if (selected.length > 0) {
+        actionBar.classList.add('visible');
+        countSpan.textContent = selected.length;
+      } else {
+        actionBar.classList.remove('visible');
+      }
+
+      // Update "Select All" state
+      if (selectAll) {
+        if (allCheckboxes.length === 0) {
+          selectAll.checked = false;
+          selectAll.indeterminate = false;
+        } else if (selected.length === allCheckboxes.length) {
+          selectAll.checked = true;
+          selectAll.indeterminate = false;
+        } else if (selected.length > 0) {
+          selectAll.checked = false;
+          selectAll.indeterminate = true;
+        } else {
+          selectAll.checked = false;
+          selectAll.indeterminate = false;
+        }
+      }
+    }
+
+    function toggleAllCacheCheckboxes(checked) {
+      document.querySelectorAll('.cache-item-check').forEach(cb => {
+        cb.checked = checked;
+      });
+      updateCacheActionBar();
+    }
+
+    function clearCacheSelection() {
+      toggleAllCacheCheckboxes(false);
+      const selectAll = document.getElementById('cache-select-all');
+      if (selectAll) selectAll.checked = false;
+    }
+
+    async function deleteAndSyncSelected() {
+      const items = getSelectedCacheItems();
+      if (items.length === 0) {
+        showToast('No cache files selected', 'error');
+        return;
+      }
+
+      if (!currentUserIsSuperAdmin || !adminActiveTenantId) {
+        showToast('Select a tenant first', 'error');
+        return;
+      }
+
+      if (!confirm(`Delete and resync ${items.length} cache file(s)? This will fetch fresh data from the Front API.`)) {
+        return;
+      }
+
+      const btn = document.getElementById('btn-delete-sync');
+      btn.disabled = true;
+
+      const statusDiv = document.getElementById('cache-status');
+      const statusText = document.getElementById('cache-status-text');
+      const spinner = document.getElementById('cache-spinner');
+      statusDiv.style.display = 'block';
+      statusText.textContent = `Deleting and resyncing ${items.length} cache file(s)...`;
+      spinner.className = 'fas fa-spinner fa-spin';
+      spinner.style.color = '';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/cache/delete-and-sync${adminTenantParam()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items })
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to start resync');
+        }
+
+        statusText.textContent = `Delete & resync started for ${items.length} file(s). Refreshing in a few seconds...`;
+        spinner.className = 'fas fa-check-circle';
+        spinner.style.color = 'var(--success-color)';
+        showToast(`Resync started for ${items.length} file(s)`);
+
+        clearCacheSelection();
+        setTimeout(() => loadCacheFiles(), 2000);
+      } catch (error) {
+        statusText.textContent = `Error: ${error.message}`;
+        spinner.className = 'fas fa-exclamation-circle';
+        spinner.style.color = 'var(--danger-color)';
+        showToast(error.message, 'error');
+      } finally {
+        btn.disabled = false;
       }
     }
   </script>

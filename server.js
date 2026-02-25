@@ -567,7 +567,7 @@ app.get('/getCachedData', requireAuth, async (req, res) => {
       });
     }
 
-    const validRanges = ['yesterday', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth'];
+    const validRanges = ['lastWeek', 'lastMonth', 'lastQuarter'];
     if (!validRanges.includes(range)) {
       return res.status(400).json({
         error: `Invalid range. Valid options: ${validRanges.join(', ')}`
@@ -1464,7 +1464,7 @@ app.post('/api/cache/delete-and-sync', requireAuth, requireSuperAdmin, async (re
       return res.status(400).json({ error: 'items array is required and must not be empty.' });
     }
 
-    const validRanges = ['yesterday', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth'];
+    const validRanges = ['lastWeek', 'lastMonth', 'lastQuarter'];
     for (const item of items) {
       if (!item.department || typeof item.department !== 'string') {
         return res.status(400).json({ error: 'Each item must have a department string.' });

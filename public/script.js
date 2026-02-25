@@ -3,11 +3,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Mapeo de rangos predefinidos a nombres de cache
   const CACHE_RANGE_MAP = {
-    'Yesterday': 'yesterday',
-    'This Week': 'thisWeek',
     'Last Week': 'lastWeek',
-    'This Month': 'thisMonth',
-    'Last Month': 'lastMonth'
+    'Last Month': 'lastMonth',
+    'Last Quarter': 'lastQuarter'
   };
 
   // Variable para trackear el rango seleccionado
@@ -509,14 +507,14 @@ document.addEventListener("DOMContentLoaded", () => {
       startDate: currentStartDate,
       endDate: currentEndDate,
       ranges: {
-        'Today': [moment(), moment()],
-        'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
-        'This Week': [moment().startOf('week'), moment()],
         'Last Week': [moment().subtract(1, 'week').startOf('week'), moment().subtract(1, 'week').endOf('week')],
-        'This Month': [moment().startOf('month'), moment()],
         'Last Month': [
           moment().subtract(1, 'month').startOf('month'),
           moment().subtract(1, 'month').endOf('month')
+        ],
+        'Last Quarter': [
+          moment().subtract(1, 'quarter').startOf('quarter'),
+          moment().subtract(1, 'quarter').endOf('quarter')
         ]
       }
     }, function (start, end, label) {

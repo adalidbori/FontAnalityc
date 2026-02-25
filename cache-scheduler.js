@@ -2,7 +2,7 @@
  * Cache Scheduler - Pre-calcula métricas para rangos predefinidos (Multi-Tenant)
  *
  * Todos los rangos se actualizan diariamente a las 6 AM ET:
- * - Yesterday, This Week, Last Week, This Month, Last Month
+ * - Last Week, Last Month, Last Quarter
  *
  * Iterates over all active tenants and precalculates per-tenant.
  */
@@ -13,8 +13,8 @@ require('dotenv').config();
 
 const db = require('./db');
 
-// Rangos predefinidos
-const RANGES = ['yesterday', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth'];
+// Rangos predefinidos (solo rangos cerrados que no cambian durante el día)
+const RANGES = ['lastWeek', 'lastMonth', 'lastQuarter'];
 
 // Directorio de cache (configurable for Azure App Service)
 const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'cache');
@@ -83,29 +83,6 @@ function getDateRange(rangeName) {
   const { year, month, day } = getNowInTimezone();
 
   switch (rangeName) {
-    case 'yesterday': {
-      const d = new Date(Date.UTC(year, month, day - 1));
-      const y = d.getUTCFullYear(), m = d.getUTCMonth(), dd = d.getUTCDate();
-      return {
-        start: toUnixInTimezone(y, m, dd, 0, 0, 0),
-        end: toUnixInTimezone(y, m, dd, 23, 59, 59),
-        label: 'Yesterday'
-      };
-    }
-
-    case 'thisWeek': {
-      // Calcular día de la semana en ET (0=Sun)
-      const nowET = new Date();
-      const dowStr = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'short' }).format(nowET);
-      const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(dowStr);
-      const weekStart = new Date(Date.UTC(year, month, day - dow));
-      return {
-        start: toUnixInTimezone(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate(), 0, 0, 0),
-        end: toUnixInTimezone(year, month, day, 0, 0, 0),
-        label: 'This Week'
-      };
-    }
-
     case 'lastWeek': {
       const nowET = new Date();
       const dowStr = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'short' }).format(nowET);
@@ -121,14 +98,6 @@ function getDateRange(rangeName) {
       };
     }
 
-    case 'thisMonth': {
-      return {
-        start: toUnixInTimezone(year, month, 1, 0, 0, 0),
-        end: toUnixInTimezone(year, month, day, 0, 0, 0),
-        label: 'This Month'
-      };
-    }
-
     case 'lastMonth': {
       const lastMonthDate = new Date(Date.UTC(year, month - 1, 1));
       const lastDayOfLastMonth = new Date(Date.UTC(year, month, 0));
@@ -136,6 +105,28 @@ function getDateRange(rangeName) {
         start: toUnixInTimezone(lastMonthDate.getUTCFullYear(), lastMonthDate.getUTCMonth(), 1, 0, 0, 0),
         end: toUnixInTimezone(lastDayOfLastMonth.getUTCFullYear(), lastDayOfLastMonth.getUTCMonth(), lastDayOfLastMonth.getUTCDate(), 23, 59, 59),
         label: 'Last Month'
+      };
+    }
+
+    case 'lastQuarter': {
+      // Trimestre anterior completo
+      const currentQuarter = Math.floor(month / 3); // 0=Q1, 1=Q2, 2=Q3, 3=Q4
+      let qStartYear = year, qStartMonth, qEndYear = year, qEndMonth;
+      if (currentQuarter === 0) {
+        // Estamos en Q1 (Jan-Mar), trimestre anterior es Q4 del año pasado (Oct-Dec)
+        qStartYear = year - 1;
+        qEndYear = year - 1;
+        qStartMonth = 9;  // October (0-indexed)
+        qEndMonth = 11;   // December (0-indexed)
+      } else {
+        qStartMonth = (currentQuarter - 1) * 3;
+        qEndMonth = qStartMonth + 2;
+      }
+      const lastDayOfQuarter = new Date(Date.UTC(qEndYear, qEndMonth + 1, 0));
+      return {
+        start: toUnixInTimezone(qStartYear, qStartMonth, 1, 0, 0, 0),
+        end: toUnixInTimezone(lastDayOfQuarter.getUTCFullYear(), lastDayOfQuarter.getUTCMonth(), lastDayOfQuarter.getUTCDate(), 23, 59, 59),
+        label: 'Last Quarter'
       };
     }
 

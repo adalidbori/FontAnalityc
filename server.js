@@ -1681,11 +1681,19 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
     const events = await db.getTimeOffEvents(tenantId, start, end);
 
     // Transform to FullCalendar format
-    const calendarEvents = events.map(e => ({
+    // FullCalendar treats 'end' as exclusive, so add 1 day to inclusive end_date
+    const calendarEvents = events.map(e => {
+      let fcEnd = e.end_date;
+      if (e.is_all_day && e.end_date) {
+        const d = new Date(e.end_date + 'T00:00:00');
+        d.setDate(d.getDate() + 1);
+        fcEnd = d.toISOString().split('T')[0];
+      }
+      return {
       id: e.id,
       title: `${e.employee_name}${e.hours_per_day ? ` (${e.hours_per_day}h)` : ''}`,
       start: e.start_date,
-      end: e.end_date,
+      end: fcEnd,
       allDay: e.is_all_day,
       color: e.color,
       extendedProps: {
@@ -1700,7 +1708,8 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
         createdAt: e.created_at,
         tenantName: e.tenant_name
       }
-    }));
+    };
+    });
 
     res.json(calendarEvents);
   } catch (err) {
@@ -1824,8 +1833,15 @@ function parseICS(icsText) {
 
   for (const line of lines) {
     if (line === 'BEGIN:VEVENT') {
-      current = {};
+      current = { _rawEndIsAllDay: false };
     } else if (line === 'END:VEVENT' && current) {
+      // ICS all-day DTEND is exclusive (e.g. Mon-Fri = DTSTART:Mon, DTEND:Sat)
+      // We store inclusive end dates in the DB, so subtract 1 day
+      if (current.isAllDay && current.end) {
+        const d = new Date(current.end + 'T00:00:00');
+        d.setDate(d.getDate() - 1);
+        current.end = d.toISOString().split('T')[0];
+      }
       if (current.start) events.push(current);
       current = null;
     } else if (current) {
@@ -1841,7 +1857,7 @@ function parseICS(icsText) {
           break;
         case 'DTSTART':
           current.start = parseICSDate(value);
-          current.isAllDay = value.length === 8;
+          current.isAllDay = value.length === 8 || key.includes('VALUE=DATE');
           break;
         case 'DTEND':
           current.end = parseICSDate(value);
@@ -1858,9 +1874,11 @@ function parseICS(icsText) {
 }
 
 function parseICSDate(str) {
+  // DATE only format: 20260323
   if (str.length === 8) {
     return `${str.substring(0, 4)}-${str.substring(4, 6)}-${str.substring(6, 8)}`;
   }
+  // DATETIME format: 20260323T090000Z - extract date part only
   const clean = str.replace('Z', '');
   if (clean.length >= 15) {
     return `${clean.substring(0, 4)}-${clean.substring(4, 6)}-${clean.substring(6, 8)}`;

@@ -1682,18 +1682,20 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
 
     // Transform to FullCalendar format
     // FullCalendar treats 'end' as exclusive, so add 1 day to inclusive end_date
+    // pg returns DATE columns as JS Date objects, so convert to ISO string first
     const calendarEvents = events.map(e => {
-      let fcEnd = e.end_date;
-      if (e.is_all_day && e.end_date) {
-        const d = new Date(e.end_date + 'T00:00:00');
+      const startStr = e.start_date instanceof Date ? e.start_date.toISOString().split('T')[0] : e.start_date;
+      let endStr = e.end_date instanceof Date ? e.end_date.toISOString().split('T')[0] : e.end_date;
+      if (e.is_all_day && endStr) {
+        const d = new Date(endStr + 'T12:00:00');
         d.setDate(d.getDate() + 1);
-        fcEnd = d.toISOString().split('T')[0];
+        endStr = d.toISOString().split('T')[0];
       }
       return {
       id: e.id,
       title: `${e.employee_name}${e.hours_per_day ? ` (${e.hours_per_day}h)` : ''}`,
-      start: e.start_date,
-      end: fcEnd,
+      start: startStr,
+      end: endStr,
       allDay: e.is_all_day,
       color: e.color,
       extendedProps: {
@@ -1838,7 +1840,7 @@ function parseICS(icsText) {
       // ICS all-day DTEND is exclusive (e.g. Mon-Fri = DTSTART:Mon, DTEND:Sat)
       // We store inclusive end dates in the DB, so subtract 1 day
       if (current.isAllDay && current.end) {
-        const d = new Date(current.end + 'T00:00:00');
+        const d = new Date(current.end + 'T12:00:00');
         d.setDate(d.getDate() - 1);
         current.end = d.toISOString().split('T')[0];
       }

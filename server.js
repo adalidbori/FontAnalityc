@@ -32,6 +32,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: 'text/*', limit: '10mb' }));
 app.use(cookieParser());
 
+// Allow embedding in Microsoft Teams iframes
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.skype.com");
+  next();
+});
+
 // ==========================================
 // SESSION & PASSPORT CONFIGURATION
 // ==========================================
@@ -56,7 +62,8 @@ app.use(session({
     secure: isProduction, // true in production (requires HTTPS)
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax'
+    sameSite: isProduction ? 'none' : 'lax', // 'none' required for Teams iframe in production
+    partitioned: isProduction // CHIPS support for third-party cookie restrictions
   }
 }));
 
@@ -319,6 +326,10 @@ app.get('/auth/login', (req, res, next) => {
   if (!process.env.AZURE_CLIENT_ID) {
     return res.status(500).send('Azure AD not configured');
   }
+  // Track if login was initiated from Teams iframe popup
+  if (req.query.popup === 'true') {
+    req.session.popupAuth = true;
+  }
   // Save session before redirect to ensure state is persisted
   req.session.save((err) => {
     if (err) {
@@ -367,6 +378,20 @@ app.post('/auth/callback', (req, res, next) => {
         if (saveErr) {
           console.error('Session save error:', saveErr);
         }
+
+        // If login was initiated from Teams iframe popup, close popup and notify parent
+        if (req.session.popupAuth) {
+          delete req.session.popupAuth;
+          return res.send(`
+            <html><body><script>
+              if (window.opener) {
+                window.opener.postMessage('auth-success', '*');
+              }
+              window.close();
+            </script></body></html>
+          `);
+        }
+
         res.redirect(returnTo);
       });
     });

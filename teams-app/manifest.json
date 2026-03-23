@@ -1,0 +1,47 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "4b35fd23-3416-42e7-b7fe-73dd77774dd4",
+  "developer": {
+    "name": "A Customs Brokerage",
+    "websiteUrl": "https://metrics.acb-us.com",
+    "privacyUrl": "https://metrics.acb-us.com",
+    "termsOfUseUrl": "https://metrics.acb-us.com"
+  },
+  "name": {
+    "short": "ACB Metrics",
+    "full": "A Customs Brokerage - Metrics & Calendar"
+  },
+  "description": {
+    "short": "Analytics dashboard and Time Off Calendar",
+    "full": "Access Front Analytics dashboards and the Time Off Calendar directly from Microsoft Teams. View inbox metrics, manage time off events, check availability, and import ICS files."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#6366f1",
+  "staticTabs": [
+    {
+      "entityId": "calendar",
+      "name": "Time Off Calendar",
+      "contentUrl": "https://metrics.acb-us.com/calendar.html",
+      "websiteUrl": "https://metrics.acb-us.com/calendar.html",
+      "scopes": ["personal"]
+    },
+    {
+      "entityId": "dashboard",
+      "name": "Analytics",
+      "contentUrl": "https://metrics.acb-us.com/index.html",
+      "websiteUrl": "https://metrics.acb-us.com/index.html",
+      "scopes": ["personal"]
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": ["metrics.acb-us.com"],
+  "webApplicationInfo": {
+    "id": "4b35fd23-3416-42e7-b7fe-73dd77774dd4",
+    "resource": "https://metrics.acb-us.com"
+  }
+}

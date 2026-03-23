@@ -113,53 +113,37 @@
     </div>
   </div>
 
+  <script src="https://res.cdn.office.net/teams-js/2.28.0/js/MicrosoftTeams.min.js"></script>
   <script>
-    // Detect if running inside an iframe (Teams)
-    const isInIframe = window.self !== window.top;
+    (async function() {
+      const isInIframe = window.self !== window.top;
+      if (!isInIframe) return; // Normal web - use default link behavior
 
-    if (isInIframe) {
-      const loginBtn = document.getElementById('loginBtn');
+      // Try to initialize Teams SDK
+      try {
+        await microsoftTeams.app.initialize();
+        console.log('Teams SDK initialized');
 
-      loginBtn.addEventListener('click', function(e) {
-        e.preventDefault();
+        const loginBtn = document.getElementById('loginBtn');
+        loginBtn.addEventListener('click', function(e) {
+          e.preventDefault();
 
-        // Open login in a popup window since Azure AD blocks iframes
-        const width = 500;
-        const height = 700;
-        const left = (screen.width - width) / 2;
-        const top = (screen.height - height) / 2;
-
-        const popup = window.open(
-          '/auth/login?popup=true',
-          'teams-auth-popup',
-          `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no`
-        );
-
-        // Listen for message from popup when auth completes
-        window.addEventListener('message', function handler(event) {
-          if (event.data === 'auth-success') {
-            window.removeEventListener('message', handler);
-            window.location.reload();
-          }
+          microsoftTeams.authentication.authenticate({
+            url: window.location.origin + '/auth/login?popup=true',
+            width: 500,
+            height: 700
+          }).then(() => {
+            // Auth succeeded, reload to get the authenticated page
+            window.location.href = '/calendar.html';
+          }).catch((err) => {
+            console.error('Teams auth error:', err);
+          });
         });
-
-        // Poll in case message event doesn't fire
-        const pollTimer = setInterval(() => {
-          if (popup && popup.closed) {
-            clearInterval(pollTimer);
-            // Check if we're now authenticated
-            fetch('/api/auth/status')
-              .then(r => r.json())
-              .then(data => {
-                if (data.authenticated) {
-                  window.location.href = '/calendar.html';
-                }
-              })
-              .catch(() => {});
-          }
-        }, 500);
-      });
-    }
+      } catch (err) {
+        // Not in Teams, or SDK failed - fall back to normal iframe popup
+        console.log('Not in Teams context, using default login');
+      }
+    })();
   </script>
 </body>
 </html>

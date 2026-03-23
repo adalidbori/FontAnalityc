@@ -34,7 +34,7 @@ app.use(cookieParser());
 
 // Allow embedding in Microsoft Teams iframes
 app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.skype.com");
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.skype.com https://*.microsoft.com");
   next();
 });
 
@@ -379,16 +379,27 @@ app.post('/auth/callback', (req, res, next) => {
           console.error('Session save error:', saveErr);
         }
 
-        // If login was initiated from Teams iframe popup, close popup and notify parent
+        // If login was initiated from Teams iframe popup, notify Teams SDK and close
         if (req.session.popupAuth) {
           delete req.session.popupAuth;
           return res.send(`
-            <html><body><script>
-              if (window.opener) {
-                window.opener.postMessage('auth-success', '*');
-              }
-              window.close();
-            </script></body></html>
+            <html>
+            <script src="https://res.cdn.office.net/teams-js/2.28.0/js/MicrosoftTeams.min.js"></script>
+            <script>
+              (async function() {
+                try {
+                  await microsoftTeams.app.initialize();
+                  microsoftTeams.authentication.notifySuccess('authenticated');
+                } catch(e) {
+                  // Fallback: try postMessage and close
+                  if (window.opener) {
+                    window.opener.postMessage('auth-success', '*');
+                  }
+                  window.close();
+                }
+              })();
+            </script>
+            </html>
           `);
         }
 

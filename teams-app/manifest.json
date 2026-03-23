@@ -42,6 +42,6 @@
   "validDomains": ["metrics.acb-us.com"],
   "webApplicationInfo": {
     "id": "4b35fd23-3416-42e7-b7fe-73dd77774dd4",
-    "resource": "https://metrics.acb-us.com"
+    "resource": "api://metrics.acb-us.com/4b35fd23-3416-42e7-b7fe-73dd77774dd4"
   }
 }

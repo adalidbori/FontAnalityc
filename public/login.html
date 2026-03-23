@@ -117,31 +117,29 @@
   <script>
     (async function() {
       const isInIframe = window.self !== window.top;
-      if (!isInIframe) return; // Normal web - use default link behavior
+      if (!isInIframe) return;
 
-      // Try to initialize Teams SDK
       try {
         await microsoftTeams.app.initialize();
-        console.log('Teams SDK initialized');
 
-        const loginBtn = document.getElementById('loginBtn');
-        loginBtn.addEventListener('click', function(e) {
-          e.preventDefault();
+        // Get Teams SSO token silently (user is already logged into Teams)
+        const token = await microsoftTeams.authentication.getAuthToken();
 
-          microsoftTeams.authentication.authenticate({
-            url: window.location.origin + '/auth/login?popup=true',
-            width: 500,
-            height: 700
-          }).then(() => {
-            // Auth succeeded, reload to get the authenticated page
-            window.location.href = '/calendar.html';
-          }).catch((err) => {
-            console.error('Teams auth error:', err);
-          });
+        // Send token to our server to create a session
+        const res = await fetch('/auth/teams-sso', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
         });
+
+        if (res.ok) {
+          window.location.href = '/calendar.html';
+        } else {
+          console.error('SSO login failed');
+        }
       } catch (err) {
-        // Not in Teams, or SDK failed - fall back to normal iframe popup
-        console.log('Not in Teams context, using default login');
+        console.log('Teams SSO not available:', err);
+        // Show normal login button as fallback
       }
     })();
   </script>

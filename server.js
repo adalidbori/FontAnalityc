@@ -326,9 +326,9 @@ app.get('/auth/login', (req, res, next) => {
   if (!process.env.AZURE_CLIENT_ID) {
     return res.status(500).send('Azure AD not configured');
   }
-  // Track if login was initiated from Teams iframe popup
+  // Track if login was initiated from Teams iframe popup (use cookie, survives OAuth redirect)
   if (req.query.popup === 'true') {
-    req.session.popupAuth = true;
+    res.cookie('popupAuth', '1', { maxAge: 5 * 60 * 1000, httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax' });
   }
   // Save session before redirect to ensure state is persisted
   req.session.save((err) => {
@@ -380,8 +380,8 @@ app.post('/auth/callback', (req, res, next) => {
         }
 
         // If login was initiated from Teams iframe popup, notify Teams SDK and close
-        if (req.session.popupAuth) {
-          delete req.session.popupAuth;
+        if (req.cookies && req.cookies.popupAuth) {
+          res.clearCookie('popupAuth');
           return res.send(`
             <html>
             <script src="https://res.cdn.office.net/teams-js/2.28.0/js/MicrosoftTeams.min.js"></script>
@@ -431,6 +431,73 @@ app.get('/auth/logout', (req, res, next) => {
       }
     });
   });
+});
+
+// Teams SSO - receives JWT token from Teams SDK, validates and creates session
+app.post('/auth/teams-sso', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'No token provided' });
+
+    // Decode the JWT payload (Teams SSO token is a valid Azure AD token)
+    const parts = token.split('.');
+    if (parts.length !== 3) return res.status(400).json({ error: 'Invalid token' });
+
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+    const email = payload.preferred_username || payload.upn || payload.email;
+    const name = payload.name || email;
+    const azureOid = payload.oid;
+
+    if (!email) return res.status(400).json({ error: 'No email in token' });
+
+    // Look up or auto-create user (same logic as passport callback)
+    let systemUser = await db.getSystemUserByEmail(email);
+
+    if (!systemUser) {
+      const emailDomain = email.split('@')[1];
+      const tenant = await db.getTenantByDomain(emailDomain);
+
+      if (!tenant) {
+        return res.status(403).json({ error: 'Access denied - domain not registered' });
+      }
+
+      systemUser = await db.createSystemUser(email, name, 'calendar_user', azureOid, tenant.id);
+      console.log('Teams SSO: Auto-created calendar_user for:', email, 'tenant:', tenant.slug);
+    }
+
+    if (!systemUser.is_active) {
+      return res.status(403).json({ error: 'Account disabled' });
+    }
+
+    // Update Azure OID if needed
+    if (!systemUser.azure_oid && azureOid) {
+      await db.updateSystemUserAzureOid(systemUser.id, azureOid);
+    }
+
+    // Create session (same as passport login)
+    const user = {
+      id: systemUser.id,
+      email: systemUser.email,
+      name: systemUser.name,
+      role: systemUser.role,
+      tenantId: systemUser.tenant_id
+    };
+
+    req.login(user, (err) => {
+      if (err) {
+        console.error('Teams SSO session error:', err);
+        return res.status(500).json({ error: 'Session creation failed' });
+      }
+      req.session.save((saveErr) => {
+        if (saveErr) console.error('Session save error:', saveErr);
+        console.log('Teams SSO: Login successful for:', email);
+        res.json({ success: true, role: user.role });
+      });
+    });
+  } catch (err) {
+    console.error('Teams SSO error:', err);
+    res.status(500).json({ error: 'SSO authentication failed' });
+  }
 });
 
 // Get current user info

@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Front Analytics - Time Off Calendar</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+  <!-- Google Fonts - Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- Custom Styles (shared sidebar, nav, layout) -->
+  <link rel="stylesheet" href="styles.css?v=6">
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+
+  <style>
+    .calendar-page-content {
+      flex: 1;
+      margin-left: 280px;
+      padding: 32px;
+      min-height: 100vh;
+      overflow-y: auto;
+    }
+
+    .calendar-page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .calendar-page-header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary, #1a1a2e);
+      margin: 0;
+    }
+
+    .calendar-page-header .subtitle {
+      font-size: 13px;
+      color: var(--text-secondary, #666);
+      margin-top: 2px;
+    }
+
+    .calendar-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .calendar-actions .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s;
+      color: white;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 1024px) {
+      .calendar-page-content {
+        margin-left: 240px;
+        padding: 24px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .calendar-page-content {
+        margin-left: 0;
+        padding: 16px;
+      }
+    }
+
+    .btn-add-event {
+      background: var(--accent-primary, #6366f1);
+    }
+
+    .btn-add-event:hover {
+      opacity: 0.9;
+    }
+
+    .btn-check-avail {
+      background: #27ae60;
+    }
+
+    .btn-check-avail:hover {
+      background: #219a52;
+    }
+
+    .btn-import-ics {
+      background: #9b59b6;
+    }
+
+    .btn-import-ics:hover {
+      background: #8e44ad;
+    }
+
+    .calendar-wrapper {
+      background: var(--bg-card, #fff);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    /* FullCalendar overrides to match theme */
+    .fc .fc-toolbar-title {
+      font-size: 1.2em !important;
+      font-weight: 600;
+    }
+
+    .fc .fc-button-primary {
+      background: var(--accent-primary, #6366f1) !important;
+      border-color: var(--accent-primary, #6366f1) !important;
+      font-size: 13px;
+    }
+
+    .fc .fc-button-primary:hover {
+      opacity: 0.9;
+    }
+
+    .fc .fc-button-active {
+      background: var(--accent-secondary, #4f46e5) !important;
+      border-color: var(--accent-secondary, #4f46e5) !important;
+    }
+
+    .fc .fc-event {
+      border-radius: 4px;
+      padding: 2px 4px;
+      font-size: 12px;
+    }
+
+    .fc .fc-daygrid-day.fc-day-today {
+      background: rgba(99, 102, 241, 0.06) !important;
+    }
+
+    /* Modal */
+    .cal-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .cal-modal-overlay.active {
+      display: flex;
+    }
+
+    .cal-modal {
+      background: var(--bg-card, #fff);
+      border-radius: 12px;
+      padding: 24px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+
+    .cal-modal h2 {
+      margin-bottom: 16px;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary, #1a1a2e);
+    }
+
+    .cal-form-group {
+      margin-bottom: 14px;
+    }
+
+    .cal-form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      color: var(--text-secondary, #555);
+    }
+
+    .cal-form-group input, .cal-form-group select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--border-color, #e2e8f0);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--bg-primary, #fff);
+      color: var(--text-primary, #1a1a2e);
+    }
+
+    .cal-form-group input:focus, .cal-form-group select:focus {
+      outline: none;
+      border-color: var(--accent-primary, #6366f1);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+    }
+
+    .cal-form-row {
+      display: flex;
+      gap: 12px;
+    }
+
+    .cal-form-row .cal-form-group {
+      flex: 1;
+    }
+
+    .cal-modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+
+    .cal-modal-actions .btn-cancel {
+      background: var(--bg-secondary, #f1f5f9);
+      color: var(--text-primary, #1a1a2e);
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .cal-modal-actions .btn-submit {
+      background: var(--accent-primary, #6366f1);
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    /* Event detail popover */
+    .event-popover {
+      display: none;
+      position: fixed;
+      background: var(--bg-card, #fff);
+      border-radius: 10px;
+      padding: 16px;
+      width: 280px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      z-index: 999;
+    }
+
+    .event-popover.active {
+      display: block;
+    }
+
+    .event-popover h3 {
+      font-size: 15px;
+      margin-bottom: 10px;
+      color: var(--text-primary, #1a1a2e);
+    }
+
+    .event-popover .detail {
+      font-size: 13px;
+      color: var(--text-secondary, #555);
+      margin-bottom: 6px;
+    }
+
+    .event-popover .detail strong {
+      color: var(--text-primary, #333);
+    }
+
+    .event-popover .popover-actions {
+      margin-top: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .btn-delete-event {
+      background: #e74c3c;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .btn-delete-event:hover {
+      background: #c0392b;
+    }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-secondary, #777);
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .status-bar {
+      background: #d4edda;
+      color: #155724;
+      padding: 8px 16px;
+      font-size: 13px;
+      text-align: center;
+      display: none;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    .status-bar.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status-bar.active {
+      display: block;
+    }
+
+    /* Availability / Conflicts */
+    .conflict-results {
+      max-height: 260px;
+      overflow-y: auto;
+      margin-top: 12px;
+    }
+
+    .conflict-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #fff5f5;
+      border-left: 4px solid #e74c3c;
+      margin-bottom: 8px;
+    }
+
+    .conflict-item .conflict-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-primary, #1a1a2e);
+    }
+
+    .conflict-item .conflict-dates {
+      font-size: 12px;
+      color: var(--text-secondary, #777);
+    }
+
+    .conflict-item .conflict-dept {
+      font-size: 11px;
+      color: #999;
+      margin-top: 2px;
+    }
+
+    .no-conflicts {
+      text-align: center;
+      padding: 24px;
+      color: #27ae60;
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .no-conflicts .check-icon {
+      font-size: 32px;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .conflict-summary {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-top: 12px;
+    }
+
+    .conflict-summary.has-conflicts {
+      background: #fff5f5;
+      color: #c0392b;
+    }
+
+    .conflict-summary.no-conflict {
+      background: #eafaf1;
+      color: #27ae60;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app-wrapper">
+    <div class="main-container">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- Logo -->
+        <div class="sidebar-header">
+          <a href="/" class="logo">
+            <div class="logo-icon">
+              <i class="fas fa-chart-line"></i>
+            </div>
+            <span class="logo-text">Front Analytics</span>
+          </a>
+        </div>
+
+        <!-- User Header -->
+        <div id="user-header" class="sidebar-user-header">
+          <!-- User info will be rendered here by auth.js -->
+        </div>
+
+        <!-- Navigation -->
+        <nav class="sidebar-nav">
+          <div class="nav-section-title">Navigation</div>
+          <a href="/" id="dashboard-link" class="nav-link">
+            <span class="nav-icon"><i class="fas fa-chart-bar"></i></span>
+            <span>Dashboard</span>
+          </a>
+          <a href="/calendar.html" class="nav-link active">
+            <span class="nav-icon"><i class="fas fa-calendar-alt"></i></span>
+            <span>Time Off Calendar</span>
+          </a>
+        </nav>
+
+        <!-- Admin Link (hidden by default, shown for admins by JS) -->
+        <div id="admin-link" style="padding: 16px 12px; border-top: 1px solid var(--border-color); margin-top: auto; display: none;">
+          <a href="/admin.html" class="nav-link" style="text-decoration: none;">
+            <span class="nav-icon"><i class="fas fa-cog"></i></span>
+            <span>Admin Panel</span>
+          </a>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <div class="calendar-page-content">
+        <div class="calendar-page-header">
+          <div>
+            <h1>Time Off Calendar</h1>
+            <div class="subtitle">Paylocity Sync & Manual Entries</div>
+          </div>
+          <div class="calendar-actions">
+            <button class="btn btn-add-event" onclick="openAddModal()">
+              <i class="fas fa-plus"></i> Add Time Off
+            </button>
+            <button class="btn btn-check-avail" onclick="openAvailabilityModal()">
+              <i class="fas fa-search"></i> Check Availability
+            </button>
+            <button class="btn btn-import-ics" onclick="document.getElementById('icsFileInput').click()">
+              <i class="fas fa-file-import"></i> Import .ICS
+            </button>
+            <input type="file" id="icsFileInput" accept=".ics" style="display:none" onchange="handleICSImport(this)">
+          </div>
+        </div>
+
+        <!-- Tenant selector for super admin -->
+        <div id="tenantSelector" style="display:none; margin-bottom: 16px;">
+          <label style="font-size:13px; font-weight:500; color:var(--text-secondary, #555); margin-right:8px;">Tenant:</label>
+          <select id="tenantSelect" style="padding:6px 12px; border:1px solid var(--border-color, #e2e8f0); border-radius:8px; font-size:13px; font-family:inherit; background:var(--bg-primary, #fff); color:var(--text-primary, #1a1a2e);">
+            <option value="">All Tenants</option>
+          </select>
+        </div>
+
+        <div id="statusBar" class="status-bar"></div>
+
+        <div class="calendar-wrapper">
+          <div id="calendar"></div>
+          <div class="legend">
+            <div class="legend-item"><div class="legend-dot" style="background:#3788d8"></div> Paylocity / Default</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#e67e22"></div> Vacation</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#27ae60"></div> Personal</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> Sick</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#9b59b6"></div> Imported (ICS)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Event Modal -->
+  <div id="addModal" class="cal-modal-overlay">
+    <div class="cal-modal">
+      <h2>Add Time Off</h2>
+      <form id="addForm" onsubmit="handleAddEvent(event)">
+        <div class="cal-form-group">
+          <label>Employee Name *</label>
+          <input type="text" id="empName" required placeholder="John Doe">
+        </div>
+        <div class="cal-form-row">
+          <div class="cal-form-group">
+            <label>Start Date *</label>
+            <input type="date" id="startDate" required>
+          </div>
+          <div class="cal-form-group">
+            <label>End Date *</label>
+            <input type="date" id="endDate" required>
+          </div>
+        </div>
+        <div class="cal-form-row">
+          <div class="cal-form-group">
+            <label>Hours per Day</label>
+            <input type="number" id="hoursPerDay" min="0" max="24" step="0.5" placeholder="8">
+          </div>
+          <div class="cal-form-group">
+            <label>Type</label>
+            <select id="eventColor">
+              <option value="#3788d8">General</option>
+              <option value="#e67e22">Vacation</option>
+              <option value="#27ae60">Personal</option>
+              <option value="#e74c3c">Sick</option>
+            </select>
+          </div>
+        </div>
+        <div class="cal-modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeAddModal()">Cancel</button>
+          <button type="submit" class="btn-submit">Add Event</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Event Detail Popover -->
+  <div id="eventPopover" class="event-popover">
+    <h3 id="popoverTitle"></h3>
+    <div class="detail"><strong>Date:</strong> <span id="popoverDate"></span></div>
+    <div class="detail" id="popoverEmailRow"><strong>Email:</strong> <span id="popoverEmail"></span></div>
+    <div class="detail" id="popoverSupervisorRow"><strong>Supervisor:</strong> <span id="popoverSupervisor"></span></div>
+    <div class="detail" id="popoverHoursRow"><strong>Hours/Day:</strong> <span id="popoverHours"></span></div>
+    <div class="detail"><strong>Source:</strong> <span id="popoverSource"></span></div>
+    <div class="popover-actions">
+      <button class="btn-delete-event" id="popoverDeleteBtn">Delete</button>
+    </div>
+  </div>
+
+  <!-- Availability Check Modal -->
+  <div id="availabilityModal" class="cal-modal-overlay">
+    <div class="cal-modal" style="max-width:500px">
+      <h2>Check Availability</h2>
+      <p style="font-size:13px;color:var(--text-secondary, #777);margin-bottom:16px">Select a date range to see who already has time off</p>
+      <form id="availabilityForm" onsubmit="handleCheckAvailability(event)">
+        <div class="cal-form-row">
+          <div class="cal-form-group">
+            <label>Start Date *</label>
+            <input type="date" id="availStart" required>
+          </div>
+          <div class="cal-form-group">
+            <label>End Date *</label>
+            <input type="date" id="availEnd" required>
+          </div>
+        </div>
+        <div class="cal-modal-actions" style="margin-top:12px">
+          <button type="button" class="btn-cancel" onclick="closeAvailabilityModal()">Close</button>
+          <button type="submit" class="btn-submit" style="background:#27ae60">Check</button>
+        </div>
+      </form>
+      <div id="availabilityResults"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <!-- Auth JavaScript -->
+  <script src="auth.js?v=1"></script>
+  <script>
+    let calendar;
+    let currentEventId = null;
+    let selectedTenantId = '';
+
+    function getTenantParam() {
+      return selectedTenantId ? `tenantId=${selectedTenantId}` : '';
+    }
+
+    function appendTenantParam(url) {
+      const param = getTenantParam();
+      if (!param) return url;
+      return url + (url.includes('?') ? '&' : '?') + param;
+    }
+
+    function requireTenantForWrite() {
+      const user = Auth.currentUser;
+      if (user && user.isSuperAdmin && !selectedTenantId) {
+        showStatus('Please select a tenant first', true);
+        return false;
+      }
+      return true;
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Auth check
+      await Auth.checkAuth();
+      await Auth.renderUserHeader();
+
+      const user = Auth.currentUser;
+
+      // calendar_user: hide Dashboard and Admin links
+      if (user && user.role === 'calendar_user') {
+        document.getElementById('dashboard-link').style.display = 'none';
+      }
+
+      if (user && (user.role === 'admin' || user.role === 'super_admin' || user.isSuperAdmin)) {
+        document.getElementById('admin-link').style.display = '';
+      }
+
+      // Show tenant selector for super admin
+      if (user && user.isSuperAdmin) {
+        const selector = document.getElementById('tenantSelector');
+        selector.style.display = 'flex';
+        selector.style.alignItems = 'center';
+
+        try {
+          const res = await fetch('/api/tenants');
+          if (res.ok) {
+            const tenants = await res.json();
+            const select = document.getElementById('tenantSelect');
+            tenants.forEach(t => {
+              const opt = document.createElement('option');
+              opt.value = t.id;
+              opt.textContent = t.name;
+              select.appendChild(opt);
+            });
+            select.addEventListener('change', () => {
+              selectedTenantId = select.value;
+              calendar.refetchEvents();
+            });
+          }
+        } catch (err) {
+          console.error('Error loading tenants:', err);
+        }
+      }
+
+      // Initialize FullCalendar
+      const calendarEl = document.getElementById('calendar');
+
+      calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: 'dayGridMonth,timeGridWeek,listWeek'
+        },
+        events: fetchEvents,
+        eventClick: showEventPopover,
+        selectable: true,
+        select: (info) => {
+          const endDate = new Date(info.end);
+          endDate.setDate(endDate.getDate() - 1);
+          const endStr = endDate.toISOString().split('T')[0];
+          document.getElementById('availStart').value = info.startStr;
+          document.getElementById('availEnd').value = endStr;
+          openAvailabilityModal();
+          handleCheckAvailability();
+        },
+        dateClick: (info) => {
+          document.getElementById('startDate').value = info.dateStr;
+          document.getElementById('endDate').value = info.dateStr;
+          openAddModal();
+        },
+        height: 'auto',
+        navLinks: true,
+        editable: false,
+        dayMaxEvents: true
+      });
+
+      calendar.render();
+
+      // Close popover on outside click
+      document.addEventListener('click', (e) => {
+        const popover = document.getElementById('eventPopover');
+        if (!popover.contains(e.target) && !e.target.closest('.fc-event')) {
+          popover.classList.remove('active');
+        }
+      });
+    });
+
+    async function fetchEvents(info, successCallback, failureCallback) {
+      try {
+        const start = info.startStr;
+        const end = info.endStr;
+        const res = await fetch(appendTenantParam(`/api/calendar/events?start=${start}&end=${end}`));
+        if (res.status === 401) {
+          window.location.href = '/login.html';
+          return;
+        }
+        const events = await res.json();
+        successCallback(events);
+      } catch (err) {
+        console.error('Error fetching events:', err);
+        failureCallback(err);
+      }
+    }
+
+    function showEventPopover(info) {
+      info.jsEvent.preventDefault();
+      info.jsEvent.stopPropagation();
+
+      const event = info.event;
+      const props = event.extendedProps;
+      const rect = info.el.getBoundingClientRect();
+      const popover = document.getElementById('eventPopover');
+
+      document.getElementById('popoverTitle').textContent = props.employeeName || event.title;
+      document.getElementById('popoverDate').textContent = formatDateRange(event.start, event.end);
+
+      const emailRow = document.getElementById('popoverEmailRow');
+      const supervisorRow = document.getElementById('popoverSupervisorRow');
+      const hoursRow = document.getElementById('popoverHoursRow');
+
+      if (props.employeeEmail) {
+        document.getElementById('popoverEmail').textContent = props.employeeEmail;
+        emailRow.style.display = 'block';
+      } else {
+        emailRow.style.display = 'none';
+      }
+
+      if (props.supervisorEmail) {
+        document.getElementById('popoverSupervisor').textContent = props.supervisorEmail;
+        supervisorRow.style.display = 'block';
+      } else {
+        supervisorRow.style.display = 'none';
+      }
+
+      if (props.hoursPerDay) {
+        document.getElementById('popoverHours').textContent = props.hoursPerDay;
+        hoursRow.style.display = 'block';
+      } else {
+        hoursRow.style.display = 'none';
+      }
+
+      const sourceMap = { webhook: 'Paylocity', manual: 'Manual', ics: 'Imported (ICS)' };
+      document.getElementById('popoverSource').textContent = sourceMap[props.source] || props.source;
+
+      currentEventId = event.id;
+      document.getElementById('popoverDeleteBtn').onclick = () => deleteEvent(event.id);
+
+      let top = rect.bottom + 8;
+      let left = rect.left;
+      if (left + 280 > window.innerWidth) left = window.innerWidth - 290;
+      if (top + 200 > window.innerHeight) top = rect.top - 210;
+
+      popover.style.top = top + 'px';
+      popover.style.left = left + 'px';
+      popover.classList.add('active');
+    }
+
+    function formatDateRange(start, end) {
+      const opts = { month: 'short', day: 'numeric', year: 'numeric' };
+      const s = start.toLocaleDateString('en-US', opts);
+      if (!end || start.getTime() === end.getTime()) return s;
+      const endDate = new Date(end);
+      endDate.setDate(endDate.getDate() - 1);
+      if (start.getTime() === endDate.getTime()) return s;
+      return `${s} - ${endDate.toLocaleDateString('en-US', opts)}`;
+    }
+
+    function openAddModal() {
+      document.getElementById('addModal').classList.add('active');
+    }
+
+    function closeAddModal() {
+      document.getElementById('addModal').classList.remove('active');
+      document.getElementById('addForm').reset();
+    }
+
+    async function handleAddEvent(e) {
+      e.preventDefault();
+      if (!requireTenantForWrite()) return;
+
+      const data = {
+        employeeName: document.getElementById('empName').value,
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value,
+        hoursPerDay: parseFloat(document.getElementById('hoursPerDay').value) || null,
+        color: document.getElementById('eventColor').value,
+        isAllDay: true
+      };
+
+      try {
+        const res = await fetch(appendTenantParam('/api/calendar/events'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+          showStatus('Event added successfully');
+          closeAddModal();
+          calendar.refetchEvents();
+        } else {
+          const err = await res.json();
+          showStatus(err.error || 'Error adding event', true);
+        }
+      } catch (err) {
+        showStatus('Network error', true);
+      }
+    }
+
+    async function deleteEvent(id) {
+      if (!confirm('Delete this time off event?')) return;
+
+      try {
+        const res = await fetch(appendTenantParam(`/api/calendar/events/${id}`), { method: 'DELETE' });
+        if (res.ok) {
+          showStatus('Event deleted');
+          document.getElementById('eventPopover').classList.remove('active');
+          calendar.refetchEvents();
+        } else {
+          showStatus('Error deleting event', true);
+        }
+      } catch (err) {
+        showStatus('Network error', true);
+      }
+    }
+
+    async function handleICSImport(input) {
+      const file = input.files[0];
+      if (!file) return;
+      if (!requireTenantForWrite()) { input.value = ''; return; }
+
+      try {
+        const text = await file.text();
+        const res = await fetch(appendTenantParam('/api/calendar/import/ics'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/calendar' },
+          body: text
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          showStatus(`Imported ${data.imported} event(s) from ${file.name}`);
+          calendar.refetchEvents();
+        } else {
+          showStatus(data.error || 'Error importing ICS file', true);
+        }
+      } catch (err) {
+        showStatus('Error reading file', true);
+      }
+
+      input.value = '';
+    }
+
+    // ---- Availability Check ----
+    function openAvailabilityModal() {
+      document.getElementById('availabilityModal').classList.add('active');
+      document.getElementById('availabilityResults').innerHTML = '';
+    }
+
+    function closeAvailabilityModal() {
+      document.getElementById('availabilityModal').classList.remove('active');
+      document.getElementById('availabilityForm').reset();
+      document.getElementById('availabilityResults').innerHTML = '';
+    }
+
+    async function handleCheckAvailability(e) {
+      if (e) e.preventDefault();
+
+      const start = document.getElementById('availStart').value;
+      const end = document.getElementById('availEnd').value;
+      if (!start || !end) return;
+
+      const resultsDiv = document.getElementById('availabilityResults');
+      resultsDiv.innerHTML = '<p style="text-align:center;color:var(--text-secondary, #999);padding:12px">Checking...</p>';
+
+      try {
+        const res = await fetch(appendTenantParam(`/api/calendar/conflicts?start=${start}&end=${end}`));
+        const data = await res.json();
+
+        if (data.count === 0) {
+          resultsDiv.innerHTML = `
+            <div class="no-conflicts">
+              <span class="check-icon">&#10003;</span>
+              No conflicts found!<br>
+              <span style="font-weight:400;font-size:13px;color:var(--text-secondary, #555)">No one has time off from ${formatSimpleDate(start)} to ${formatSimpleDate(end)}</span>
+            </div>`;
+        } else {
+          let html = `<div class="conflict-summary has-conflicts">${data.count} employee(s) already have time off in this range</div>`;
+          html += '<div class="conflict-results">';
+          for (const c of data.conflicts) {
+            const dept = [c.cost_center_1, c.cost_center_2, c.cost_center_3].filter(Boolean).join(' / ');
+            html += `
+              <div class="conflict-item">
+                <div>
+                  <div class="conflict-name">${escapeHtml(c.employee_name)}</div>
+                  <div class="conflict-dates">${formatSimpleDate(c.start_date)} - ${formatSimpleDate(c.end_date)}${c.hours_per_day ? ' (' + c.hours_per_day + 'h/day)' : ''}</div>
+                  ${dept ? '<div class="conflict-dept">' + escapeHtml(dept) + '</div>' : ''}
+                </div>
+              </div>`;
+          }
+          html += '</div>';
+          resultsDiv.innerHTML = html;
+        }
+      } catch (err) {
+        resultsDiv.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:12px">Error checking availability</p>';
+      }
+    }
+
+    function formatSimpleDate(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function showStatus(msg, isError = false) {
+      const bar = document.getElementById('statusBar');
+      bar.textContent = msg;
+      bar.className = 'status-bar active' + (isError ? ' error' : '');
+      setTimeout(() => bar.classList.remove('active'), 3000);
+    }
+  </script>
+</body>
+
+</html>

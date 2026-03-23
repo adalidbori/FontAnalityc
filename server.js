@@ -26,9 +26,10 @@ db.initializeDatabase().catch(err => {
   console.error('Failed to initialize database:', err);
 });
 
-// Middleware to parse JSON and form bodies
+// Middleware to parse JSON, form bodies, and text (for ICS import)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.text({ type: 'text/*', limit: '10mb' }));
 app.use(cookieParser());
 
 // ==========================================
@@ -112,8 +113,18 @@ if (process.env.AZURE_CLIENT_ID && process.env.AZURE_TENANT_ID) {
         let systemUser = await db.getSystemUserByEmail(email);
 
         if (!systemUser) {
-          console.log('Azure AD: Access denied for:', email);
-          return done(null, false, { message: 'ACCESS_DENIED' });
+          // Check if email domain matches any registered tenant
+          const emailDomain = email.split('@')[1];
+          const tenant = await db.getTenantByDomain(emailDomain);
+
+          if (!tenant) {
+            console.log('Azure AD: Access denied for:', email, '(domain not registered)');
+            return done(null, false, { message: 'ACCESS_DENIED' });
+          }
+
+          // Auto-create as calendar_user with access only to calendar
+          systemUser = await db.createSystemUser(email, name, 'calendar_user', azureOid, tenant.id);
+          console.log('Azure AD: Auto-created calendar_user for:', email, 'tenant:', tenant.slug);
         }
 
         if (!systemUser.is_active) {
@@ -230,6 +241,18 @@ function requireSuperAdmin(req, res, next) {
   return res.redirect('/access-denied.html');
 }
 
+// Check if user has full access (not calendar_user)
+// calendar_user can only access calendar pages and API
+function requireFullUser(req, res, next) {
+  if (req.user.role === 'calendar_user') {
+    if (req.path.startsWith('/api/') || req.xhr || req.headers.accept?.includes('application/json')) {
+      return res.status(403).json({ error: 'Access restricted to calendar only' });
+    }
+    return res.redirect('/calendar.html');
+  }
+  return next();
+}
+
 // Helper: get the effective tenant ID for the current request
 // Super admins can specify a tenant context via query param or header
 function getEffectiveTenantId(req) {
@@ -268,16 +291,20 @@ app.get('/access-denied.html', (req, res) => {
 });
 
 // Protected pages
-app.get('/', requireAuth, (req, res) => {
+app.get('/', requireAuth, requireFullUser, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.get('/index.html', requireAuth, (req, res) => {
+app.get('/index.html', requireAuth, requireFullUser, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/admin.html', requireAuth, requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.get('/calendar.html', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'calendar.html'));
 });
 
 // Serve other static files (protected by default via route handlers above)
@@ -329,7 +356,10 @@ app.post('/auth/callback', (req, res, next) => {
         return res.redirect('/access-denied.html');
       }
 
-      const returnTo = req.session.returnTo || '/';
+      // calendar_user goes directly to calendar, full users to their intended page
+      const returnTo = user.role === 'calendar_user'
+        ? '/calendar.html'
+        : (req.session.returnTo || '/');
       delete req.session.returnTo;
 
       // Save session before redirect to ensure it persists
@@ -557,7 +587,7 @@ app.put('/api/tenants/:id/api-keys', requireAuth, requireAdmin, async (req, res)
  * Endpoint para obtener datos cacheados
  * GET /getCachedData?department=Concierge&range=thisWeek
  */
-app.get('/getCachedData', requireAuth, async (req, res) => {
+app.get('/getCachedData', requireAuth, requireFullUser, async (req, res) => {
   try {
     const { department, range } = req.query;
 
@@ -618,7 +648,7 @@ app.get('/getCachedData', requireAuth, async (req, res) => {
  * Endpoint para listar caches disponibles
  * GET /listCaches
  */
-app.get('/listCaches', requireAuth, async (req, res) => {
+app.get('/listCaches', requireAuth, requireFullUser, async (req, res) => {
   try {
     if (!fs.existsSync(CACHE_DIR)) {
       return res.status(200).json({ caches: [] });
@@ -664,7 +694,7 @@ app.get('/listCaches', requireAuth, async (req, res) => {
 // DATA ENDPOINTS (Tenant-Scoped)
 // ==========================================
 
-app.post('/getData', requireAuth, async (req, res) => {
+app.post('/getData', requireAuth, requireFullUser, async (req, res) => {
   try {
     const { timestampStart, timestampEnd, registros } = req.body;
 
@@ -739,7 +769,7 @@ app.post('/getData', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/getDataIndividuals', requireAuth, async (req, res) => {
+app.post('/getDataIndividuals', requireAuth, requireFullUser, async (req, res) => {
   try {
     const { timestampStart, timestampEnd, inboxes } = req.body;
     // Validación de entrada
@@ -862,7 +892,7 @@ async function callFrontApi(requestBody, recordIndex, apiKey, endpoint) {
 // ==========================================
 
 // GET all inboxes
-app.get('/api/inboxes', requireAuth, async (req, res) => {
+app.get('/api/inboxes', requireAuth, requireFullUser, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
@@ -877,7 +907,7 @@ app.get('/api/inboxes', requireAuth, async (req, res) => {
 });
 
 // GET single inbox
-app.get('/api/inboxes/:id', requireAuth, async (req, res) => {
+app.get('/api/inboxes/:id', requireAuth, requireFullUser, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
@@ -961,7 +991,7 @@ app.delete('/api/inboxes/:id', requireAuth, requireAdmin, async (req, res) => {
 // ==========================================
 
 // GET all users
-app.get('/api/users', requireAuth, async (req, res) => {
+app.get('/api/users', requireAuth, requireFullUser, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
@@ -976,7 +1006,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
 });
 
 // GET single user
-app.get('/api/users/:id', requireAuth, async (req, res) => {
+app.get('/api/users/:id', requireAuth, requireFullUser, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
@@ -1060,7 +1090,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 // ==========================================
 
 // GET users by inbox
-app.get('/api/inboxes/:id/users', requireAuth, async (req, res) => {
+app.get('/api/inboxes/:id/users', requireAuth, requireFullUser, async (req, res) => {
   try {
     // Verify inbox belongs to tenant
     const tenantId = getEffectiveTenantId(req);
@@ -1117,7 +1147,7 @@ app.delete('/api/inboxes/:inboxId/users/:userId', requireAuth, requireAdmin, asy
 // ==========================================
 
 // GET users by inbox name (for analytics)
-app.get('/api/analytics/inbox/:inboxName', requireAuth, async (req, res) => {
+app.get('/api/analytics/inbox/:inboxName', requireAuth, requireFullUser, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
@@ -1132,7 +1162,7 @@ app.get('/api/analytics/inbox/:inboxName', requireAuth, async (req, res) => {
 });
 
 // GET individual users (for analytics)
-app.get('/api/analytics/individuals', requireAuth, async (req, res) => {
+app.get('/api/analytics/individuals', requireAuth, requireFullUser, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
@@ -1488,6 +1518,256 @@ app.post('/api/cache/delete-and-sync', requireAuth, requireSuperAdmin, async (re
     res.status(500).json({ error: 'Failed to start selective cache resync' });
   }
 });
+
+// ==========================================
+// CALENDAR - TIME OFF EVENTS (Tenant-Scoped)
+// ==========================================
+
+// Public webhook endpoint - Paylocity sends time off approvals here
+app.post('/api/webhook/paylocity/:tenantSlug', async (req, res) => {
+  try {
+    const tenant = await db.getTenantBySlug(req.params.tenantSlug);
+    if (!tenant || !tenant.is_active) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const {
+      companyId, employeeId, employeeName,
+      employeeWorkEMailAddress,
+      employeeCostCenter1, employeeCostCenter2, employeeCostCenter3,
+      supervisorWorkEmail,
+      timeOffStartDate, timeOffEndDate,
+      isAllDayEvent, hoursPerDay
+    } = req.body;
+
+    if (!employeeName || !timeOffStartDate || !timeOffEndDate) {
+      return res.status(400).json({ error: 'Missing required fields: employeeName, timeOffStartDate, timeOffEndDate' });
+    }
+
+    const event = await db.createTimeOffEvent(tenant.id, {
+      companyId,
+      employeeId,
+      employeeName,
+      employeeEmail: employeeWorkEMailAddress,
+      costCenter1: employeeCostCenter1,
+      costCenter2: employeeCostCenter2,
+      costCenter3: employeeCostCenter3,
+      supervisorEmail: supervisorWorkEmail,
+      startDate: timeOffStartDate,
+      endDate: timeOffEndDate,
+      isAllDay: isAllDayEvent !== false,
+      hoursPerDay,
+      source: 'webhook'
+    });
+
+    console.log(`[Webhook] Time off approved: ${employeeName} (${timeOffStartDate} - ${timeOffEndDate}) tenant=${tenant.slug}`);
+    res.status(200).json({ success: true, id: event.id });
+  } catch (err) {
+    console.error('[Webhook] Error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get calendar events (with optional date range filter)
+// Super admin without tenantId sees ALL tenants
+app.get('/api/calendar/events', requireAuth, async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+
+    const { start, end } = req.query;
+    const events = await db.getTimeOffEvents(tenantId, start, end);
+
+    // Transform to FullCalendar format
+    const calendarEvents = events.map(e => ({
+      id: e.id,
+      title: `${e.employee_name}${e.hours_per_day ? ` (${e.hours_per_day}h)` : ''}`,
+      start: e.start_date,
+      end: e.end_date,
+      allDay: e.is_all_day,
+      color: e.color,
+      extendedProps: {
+        employeeName: e.employee_name,
+        employeeEmail: e.employee_email,
+        supervisorEmail: e.supervisor_email,
+        costCenter1: e.cost_center_1,
+        costCenter2: e.cost_center_2,
+        costCenter3: e.cost_center_3,
+        hoursPerDay: e.hours_per_day,
+        source: e.source,
+        createdAt: e.created_at,
+        tenantName: e.tenant_name
+      }
+    }));
+
+    res.json(calendarEvents);
+  } catch (err) {
+    console.error('[Calendar] Error fetching events:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create manual time off event
+// Requires tenant context (super admin must use ?tenantId=X)
+app.post('/api/calendar/events', requireAuth, async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return res.status(400).json({ error: 'Tenant context required. Super admin: use ?tenantId=X' });
+
+    const { employeeName, startDate, endDate, isAllDay, hoursPerDay, color } = req.body;
+
+    if (!employeeName || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Missing required fields: employeeName, startDate, endDate' });
+    }
+
+    const event = await db.createTimeOffEvent(tenantId, {
+      employeeName,
+      startDate,
+      endDate,
+      isAllDay: isAllDay !== false,
+      hoursPerDay,
+      color,
+      source: 'manual'
+    });
+
+    res.status(201).json({ success: true, id: event.id });
+  } catch (err) {
+    console.error('[Calendar] Error creating event:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete time off event
+app.delete('/api/calendar/events/:id', requireAuth, async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+
+    const result = await db.deleteTimeOffEvent(id, tenantId);
+    if (!result) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Calendar] Error deleting event:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Check availability / conflicts
+app.get('/api/calendar/conflicts', requireAuth, async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+
+    const { start, end } = req.query;
+    if (!start || !end) {
+      return res.status(400).json({ error: 'Missing required params: start, end' });
+    }
+
+    const conflicts = await db.getTimeOffConflicts(tenantId, start, end);
+    res.json({ conflicts, count: conflicts.length, range: { start, end } });
+  } catch (err) {
+    console.error('[Calendar] Error checking conflicts:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ICS file import
+// Requires tenant context (super admin must use ?tenantId=X)
+app.post('/api/calendar/import/ics', requireAuth, async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return res.status(400).json({ error: 'Tenant context required. Super admin: use ?tenantId=X' });
+
+    const icsText = req.body;
+    if (!icsText || typeof icsText !== 'string') {
+      return res.status(400).json({ error: 'No ICS content provided' });
+    }
+
+    const events = parseICS(icsText);
+    if (events.length === 0) {
+      return res.status(400).json({ error: 'No events found in ICS file' });
+    }
+
+    let imported = 0;
+    for (const event of events) {
+      await db.createTimeOffEvent(tenantId, {
+        employeeName: event.summary || 'Imported Event',
+        employeeEmail: event.email || null,
+        startDate: event.start,
+        endDate: event.end || event.start,
+        isAllDay: event.isAllDay,
+        source: 'ics',
+        color: '#9b59b6'
+      });
+      imported++;
+    }
+
+    console.log(`[ICS] Imported ${imported} events for tenant ${tenantId}`);
+    res.json({ success: true, imported });
+  } catch (err) {
+    console.error('[ICS] Error:', err.message);
+    res.status(500).json({ error: 'Error parsing ICS file' });
+  }
+});
+
+// ICS parser helper
+function parseICS(icsText) {
+  const events = [];
+  const lines = icsText.replace(/\r\n /g, '').replace(/\r\n\t/g, '').split(/\r?\n/);
+  let current = null;
+
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') {
+      current = {};
+    } else if (line === 'END:VEVENT' && current) {
+      if (current.start) events.push(current);
+      current = null;
+    } else if (current) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx === -1) continue;
+      const key = line.substring(0, colonIdx);
+      const value = line.substring(colonIdx + 1);
+      const baseProp = key.split(';')[0];
+
+      switch (baseProp) {
+        case 'SUMMARY':
+          current.summary = value;
+          break;
+        case 'DTSTART':
+          current.start = parseICSDate(value);
+          current.isAllDay = value.length === 8;
+          break;
+        case 'DTEND':
+          current.end = parseICSDate(value);
+          break;
+        case 'ATTENDEE': {
+          const emailMatch = value.match(/mailto:(.+)/i);
+          if (emailMatch) current.email = emailMatch[1];
+          break;
+        }
+      }
+    }
+  }
+  return events;
+}
+
+function parseICSDate(str) {
+  if (str.length === 8) {
+    return `${str.substring(0, 4)}-${str.substring(4, 6)}-${str.substring(6, 8)}`;
+  }
+  const clean = str.replace('Z', '');
+  if (clean.length >= 15) {
+    return `${clean.substring(0, 4)}-${clean.substring(4, 6)}-${clean.substring(6, 8)}`;
+  }
+  return str;
+}
+
+// ==========================================
+// START SERVER
+// ==========================================
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

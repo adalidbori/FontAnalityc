@@ -100,6 +100,30 @@ async function initializeDatabase() {
       )
     `);
 
+    // Tabla de time_off_events (calendario de ausencias)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS time_off_events (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        company_id TEXT,
+        employee_id TEXT,
+        employee_name TEXT NOT NULL,
+        employee_email TEXT,
+        cost_center_1 TEXT,
+        cost_center_2 TEXT,
+        cost_center_3 TEXT,
+        supervisor_email TEXT,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        is_all_day BOOLEAN DEFAULT TRUE,
+        hours_per_day REAL,
+        source TEXT DEFAULT 'manual',
+        color TEXT DEFAULT '#3788d8',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
     // Índices para mejor rendimiento
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_users_teammate_id ON users(teammate_id);
@@ -111,6 +135,15 @@ async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_inboxes_tenant_id ON inboxes(tenant_id);
       CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
       CREATE INDEX IF NOT EXISTS idx_system_users_tenant_id ON system_users(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_time_off_events_tenant ON time_off_events(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_time_off_events_dates ON time_off_events(start_date, end_date);
+    `);
+
+    // Update role CHECK constraint to include 'calendar_user'
+    await client.query(`
+      ALTER TABLE system_users DROP CONSTRAINT IF EXISTS system_users_role_check;
+      ALTER TABLE system_users ADD CONSTRAINT system_users_role_check
+        CHECK (role IN ('admin', 'user', 'super_admin', 'calendar_user'));
     `);
 
     console.log('Database tables initialized successfully');
@@ -149,6 +182,14 @@ async function getTenantBySlug(slug) {
   const result = await pool.query(
     'SELECT * FROM tenants WHERE slug = $1',
     [slug]
+  );
+  return result.rows[0];
+}
+
+async function getTenantByDomain(domain) {
+  const result = await pool.query(
+    'SELECT * FROM tenants WHERE LOWER(domain) = LOWER($1) AND is_active = TRUE',
+    [domain]
   );
   return result.rows[0];
 }
@@ -491,6 +532,105 @@ async function deleteSystemUser(id) {
 }
 
 // ==========================================
+// TIME OFF EVENTS (Calendar)
+// ==========================================
+
+async function getTimeOffEvents(tenantId, start, end) {
+  let query = 'SELECT e.*, t.name as tenant_name FROM time_off_events e LEFT JOIN tenants t ON e.tenant_id = t.id';
+  const params = [];
+  const conditions = [];
+
+  if (tenantId) {
+    conditions.push(`e.tenant_id = $${params.length + 1}`);
+    params.push(tenantId);
+  }
+
+  if (start && end) {
+    conditions.push(`e.start_date <= $${params.length + 1} AND e.end_date >= $${params.length + 2}`);
+    params.push(end, start);
+  }
+
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
+  }
+
+  query += ' ORDER BY e.start_date ASC';
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+async function createTimeOffEvent(tenantId, data) {
+  const result = await pool.query(
+    `INSERT INTO time_off_events
+      (tenant_id, company_id, employee_id, employee_name, employee_email,
+       cost_center_1, cost_center_2, cost_center_3, supervisor_email,
+       start_date, end_date, is_all_day, hours_per_day, source, color)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     RETURNING *`,
+    [
+      tenantId,
+      data.companyId || null,
+      data.employeeId || null,
+      data.employeeName,
+      data.employeeEmail || null,
+      data.costCenter1 || null,
+      data.costCenter2 || null,
+      data.costCenter3 || null,
+      data.supervisorEmail || null,
+      data.startDate,
+      data.endDate,
+      data.isAllDay !== false,
+      data.hoursPerDay || null,
+      data.source || 'manual',
+      data.color || '#3788d8'
+    ]
+  );
+  return result.rows[0];
+}
+
+async function deleteTimeOffEvent(id, tenantId) {
+  if (tenantId) {
+    const result = await pool.query(
+      'DELETE FROM time_off_events WHERE id = $1 AND tenant_id = $2 RETURNING *',
+      [id, tenantId]
+    );
+    return result.rows[0];
+  }
+  // Super admin: delete from any tenant
+  const result = await pool.query(
+    'DELETE FROM time_off_events WHERE id = $1 RETURNING *',
+    [id]
+  );
+  return result.rows[0];
+}
+
+async function getTimeOffConflicts(tenantId, start, end) {
+  if (tenantId) {
+    const result = await pool.query(
+      `SELECT employee_name, employee_email, start_date, end_date,
+              cost_center_1, cost_center_2, cost_center_3,
+              hours_per_day, source
+       FROM time_off_events
+       WHERE tenant_id = $1 AND start_date <= $3 AND end_date >= $2
+       ORDER BY employee_name ASC`,
+      [tenantId, start, end]
+    );
+    return result.rows;
+  }
+  // Super admin: all tenants
+  const result = await pool.query(
+    `SELECT employee_name, employee_email, start_date, end_date,
+            cost_center_1, cost_center_2, cost_center_3,
+            hours_per_day, source
+     FROM time_off_events
+     WHERE start_date <= $2 AND end_date >= $1
+     ORDER BY employee_name ASC`,
+    [start, end]
+  );
+  return result.rows;
+}
+
+// ==========================================
 // MIGRATION HELPER
 // ==========================================
 
@@ -598,6 +738,7 @@ module.exports = {
   getActiveTenants,
   getTenantById,
   getTenantBySlug,
+  getTenantByDomain,
   createTenant,
   updateTenant,
   deleteTenant,
@@ -633,6 +774,11 @@ module.exports = {
   updateSystemUserTenant,
   updateSystemUserAzureOid,
   deleteSystemUser,
+  // Time Off Events (Calendar)
+  getTimeOffEvents,
+  createTimeOffEvent,
+  deleteTimeOffEvent,
+  getTimeOffConflicts,
   // Migration
   migrateFromJSON
 };

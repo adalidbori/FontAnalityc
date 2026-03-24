@@ -537,6 +537,11 @@
             <button class="btn btn-check-avail" onclick="openAvailabilityModal()">
               <i class="fas fa-search"></i> Check Availability
             </button>
+            <!-- Import ICS - Super Admin Only -->
+            <button id="importIcsBtn" class="btn btn-import-ics" onclick="document.getElementById('icsFileInput').click()" style="display:none">
+              <i class="fas fa-file-import"></i> Import .ICS
+            </button>
+            <input type="file" id="icsFileInput" accept=".ics" style="display:none" onchange="handleICSImport(this)">
           </div>
         </div>
 
@@ -547,6 +552,8 @@
             <option value="">All Tenants</option>
           </select>
         </div>
+
+        <div id="statusBar" class="status-bar"></div>
 
         <div class="calendar-wrapper">
           <div id="calendar"></div>
@@ -615,6 +622,15 @@
       return url + (url.includes('?') ? '&' : '?') + param;
     }
 
+    function requireTenantForWrite() {
+      const user = Auth.currentUser;
+      if (user && user.isSuperAdmin && !selectedTenantId) {
+        showStatus('Please select a tenant first', true);
+        return false;
+      }
+      return true;
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
       // Auth check
       await Auth.checkAuth();
@@ -631,11 +647,14 @@
         document.getElementById('admin-link').style.display = '';
       }
 
-      // Show tenant selector for super admin
+      // Show tenant selector and import button for super admin
       if (user && user.isSuperAdmin) {
         const selector = document.getElementById('tenantSelector');
         selector.style.display = 'flex';
         selector.style.alignItems = 'center';
+
+        // Show import ICS button for super admin
+        document.getElementById('importIcsBtn').style.display = 'inline-flex';
 
         try {
           const res = await fetch('/api/tenants');
@@ -838,6 +857,41 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // ---- ICS Import (Super Admin Only) ----
+    async function handleICSImport(input) {
+      const file = input.files[0];
+      if (!file) return;
+      if (!requireTenantForWrite()) { input.value = ''; return; }
+
+      try {
+        const text = await file.text();
+        const res = await fetch(appendTenantParam('/api/calendar/import/ics'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/calendar' },
+          body: text
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          showStatus(`Imported ${data.imported} event(s) from ${file.name}`);
+          calendar.refetchEvents();
+        } else {
+          showStatus(data.error || 'Error importing ICS file', true);
+        }
+      } catch (err) {
+        showStatus('Error reading file', true);
+      }
+
+      input.value = '';
+    }
+
+    function showStatus(msg, isError = false) {
+      const bar = document.getElementById('statusBar');
+      bar.textContent = msg;
+      bar.className = 'status-bar active' + (isError ? ' error' : '');
+      setTimeout(() => bar.classList.remove('active'), 3000);
     }
 
     // Sidebar toggle

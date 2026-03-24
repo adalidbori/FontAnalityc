@@ -534,16 +534,9 @@
             <div class="subtitle">Paylocity Sync & Manual Entries</div>
           </div>
           <div class="calendar-actions">
-            <button class="btn btn-add-event" onclick="openAddModal()">
-              <i class="fas fa-plus"></i> Add Time Off
-            </button>
             <button class="btn btn-check-avail" onclick="openAvailabilityModal()">
               <i class="fas fa-search"></i> Check Availability
             </button>
-            <button class="btn btn-import-ics" onclick="document.getElementById('icsFileInput').click()">
-              <i class="fas fa-file-import"></i> Import .ICS
-            </button>
-            <input type="file" id="icsFileInput" accept=".ics" style="display:none" onchange="handleICSImport(this)">
           </div>
         </div>
 
@@ -554,8 +547,6 @@
             <option value="">All Tenants</option>
           </select>
         </div>
-
-        <div id="statusBar" class="status-bar"></div>
 
         <div class="calendar-wrapper">
           <div id="calendar"></div>
@@ -571,48 +562,6 @@
     </div>
   </div>
 
-  <!-- Add Event Modal -->
-  <div id="addModal" class="cal-modal-overlay">
-    <div class="cal-modal">
-      <h2>Add Time Off</h2>
-      <form id="addForm" onsubmit="handleAddEvent(event)">
-        <div class="cal-form-group">
-          <label>Employee Name *</label>
-          <input type="text" id="empName" required placeholder="John Doe">
-        </div>
-        <div class="cal-form-row">
-          <div class="cal-form-group">
-            <label>Start Date *</label>
-            <input type="date" id="startDate" required>
-          </div>
-          <div class="cal-form-group">
-            <label>End Date *</label>
-            <input type="date" id="endDate" required>
-          </div>
-        </div>
-        <div class="cal-form-row">
-          <div class="cal-form-group">
-            <label>Hours per Day</label>
-            <input type="number" id="hoursPerDay" min="0" max="24" step="0.5" placeholder="8">
-          </div>
-          <div class="cal-form-group">
-            <label>Type</label>
-            <select id="eventColor">
-              <option value="#3788d8">General</option>
-              <option value="#e67e22">Vacation</option>
-              <option value="#27ae60">Personal</option>
-              <option value="#e74c3c">Sick</option>
-            </select>
-          </div>
-        </div>
-        <div class="cal-modal-actions">
-          <button type="button" class="btn-cancel" onclick="closeAddModal()">Cancel</button>
-          <button type="submit" class="btn-submit">Add Event</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- Event Detail Popover -->
   <div id="eventPopover" class="event-popover">
     <h3 id="popoverTitle"></h3>
@@ -621,9 +570,6 @@
     <div class="detail" id="popoverSupervisorRow"><strong>Supervisor:</strong> <span id="popoverSupervisor"></span></div>
     <div class="detail" id="popoverHoursRow"><strong>Hours/Day:</strong> <span id="popoverHours"></span></div>
     <div class="detail"><strong>Source:</strong> <span id="popoverSource"></span></div>
-    <div class="popover-actions">
-      <button class="btn-delete-event" id="popoverDeleteBtn">Delete</button>
-    </div>
   </div>
 
   <!-- Availability Check Modal -->
@@ -657,7 +603,6 @@
   <script src="auth.js?v=1"></script>
   <script>
     let calendar;
-    let currentEventId = null;
     let selectedTenantId = '';
 
     function getTenantParam() {
@@ -668,15 +613,6 @@
       const param = getTenantParam();
       if (!param) return url;
       return url + (url.includes('?') ? '&' : '?') + param;
-    }
-
-    function requireTenantForWrite() {
-      const user = Auth.currentUser;
-      if (user && user.isSuperAdmin && !selectedTenantId) {
-        showStatus('Please select a tenant first', true);
-        return false;
-      }
-      return true;
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
@@ -743,11 +679,6 @@
           document.getElementById('availEnd').value = endStr;
           openAvailabilityModal();
           handleCheckAvailability();
-        },
-        dateClick: (info) => {
-          document.getElementById('startDate').value = info.dateStr;
-          document.getElementById('endDate').value = info.dateStr;
-          openAddModal();
         },
         height: 'auto',
         navLinks: true,
@@ -823,9 +754,6 @@
       const sourceMap = { webhook: 'Paylocity', manual: 'Manual', ics: 'Imported (ICS)' };
       document.getElementById('popoverSource').textContent = sourceMap[props.source] || props.source;
 
-      currentEventId = event.id;
-      document.getElementById('popoverDeleteBtn').onclick = () => deleteEvent(event.id);
-
       let top = rect.bottom + 8;
       let left = rect.left;
       if (left + 280 > window.innerWidth) left = window.innerWidth - 290;
@@ -844,92 +772,6 @@
       endDate.setDate(endDate.getDate() - 1);
       if (start.getTime() === endDate.getTime()) return s;
       return `${s} - ${endDate.toLocaleDateString('en-US', opts)}`;
-    }
-
-    function openAddModal() {
-      document.getElementById('addModal').classList.add('active');
-    }
-
-    function closeAddModal() {
-      document.getElementById('addModal').classList.remove('active');
-      document.getElementById('addForm').reset();
-    }
-
-    async function handleAddEvent(e) {
-      e.preventDefault();
-      if (!requireTenantForWrite()) return;
-
-      const data = {
-        employeeName: document.getElementById('empName').value,
-        startDate: document.getElementById('startDate').value,
-        endDate: document.getElementById('endDate').value,
-        hoursPerDay: parseFloat(document.getElementById('hoursPerDay').value) || null,
-        color: document.getElementById('eventColor').value,
-        isAllDay: true
-      };
-
-      try {
-        const res = await fetch(appendTenantParam('/api/calendar/events'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        });
-
-        if (res.ok) {
-          showStatus('Event added successfully');
-          closeAddModal();
-          calendar.refetchEvents();
-        } else {
-          const err = await res.json();
-          showStatus(err.error || 'Error adding event', true);
-        }
-      } catch (err) {
-        showStatus('Network error', true);
-      }
-    }
-
-    async function deleteEvent(id) {
-      if (!confirm('Delete this time off event?')) return;
-
-      try {
-        const res = await fetch(appendTenantParam(`/api/calendar/events/${id}`), { method: 'DELETE' });
-        if (res.ok) {
-          showStatus('Event deleted');
-          document.getElementById('eventPopover').classList.remove('active');
-          calendar.refetchEvents();
-        } else {
-          showStatus('Error deleting event', true);
-        }
-      } catch (err) {
-        showStatus('Network error', true);
-      }
-    }
-
-    async function handleICSImport(input) {
-      const file = input.files[0];
-      if (!file) return;
-      if (!requireTenantForWrite()) { input.value = ''; return; }
-
-      try {
-        const text = await file.text();
-        const res = await fetch(appendTenantParam('/api/calendar/import/ics'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/calendar' },
-          body: text
-        });
-
-        const data = await res.json();
-        if (res.ok) {
-          showStatus(`Imported ${data.imported} event(s) from ${file.name}`);
-          calendar.refetchEvents();
-        } else {
-          showStatus(data.error || 'Error importing ICS file', true);
-        }
-      } catch (err) {
-        showStatus('Error reading file', true);
-      }
-
-      input.value = '';
     }
 
     // ---- Availability Check ----
@@ -996,13 +838,6 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
-    }
-
-    function showStatus(msg, isError = false) {
-      const bar = document.getElementById('statusBar');
-      bar.textContent = msg;
-      bar.className = 'status-bar active' + (isError ? ' error' : '');
-      setTimeout(() => bar.classList.remove('active'), 3000);
     }
 
     // Sidebar toggle
